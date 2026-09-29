@@ -4,7 +4,7 @@
   const STORAGE_KEY = "mahami-v1";
   const THEME_KEY = "mahami-theme";
   const BACKUP_KEY = "mahami-v1-backup";
-  const CHECK_INTERVAL_MS = 20000;
+  const CHECK_INTERVAL_MS = 10000;
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -1678,19 +1678,26 @@
     seedIfEmpty();
     bindEvents();
     render();
-    registerSW();
-    checkDueReminders();
+    updateNotifyStatus();
+    registerSW().then(() => {
+      checkDueReminders();
+      syncScheduleToServiceWorker();
+      updateNotifyStatus();
+    });
     setInterval(checkDueReminders, CHECK_INTERVAL_MS);
 
-    // keep awake check when page visible
     if ("permissions" in navigator && navigator.permissions?.query) {
       navigator.permissions.query({ name: "notifications" }).then((p) => {
         p.onchange = updateNotifyStatus;
       }).catch(() => {});
     }
 
+    window.addEventListener("focus", () => {
+      checkDueReminders();
+      updateNotifyStatus();
+    });
+
     window.addEventListener("error", () => {
-      // منع تعطل الواجهة بالكامل
       try { saveNow(); } catch { /* ignore */ }
     });
   }
