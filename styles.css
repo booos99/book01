@@ -852,34 +852,44 @@ form textarea {
   font-size: 0.82rem !important;
 }
 
-.notify-checklist {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
+.notify-card-head {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
-.notify-checklist li {
+.notify-pill {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 10px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text);
+  color: var(--muted-text);
 }
 
-.notify-checklist li.ok { border-color: rgba(16, 185, 129, 0.45); }
-.notify-checklist li.warn { border-color: rgba(245, 158, 11, 0.45); }
-.notify-checklist li.bad { border-color: rgba(244, 63, 94, 0.45); }
+.notify-pill.on {
+  background: var(--ok-bg);
+  color: var(--ok);
+  border-color: rgba(16, 185, 129, 0.35);
+}
 
-.notify-help {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border);
-  font-size: 0.85rem;
+.notify-pill.off {
+  background: var(--urgent-bg);
+  color: var(--urgent);
+  border-color: rgba(244, 63, 94, 0.3);
+}
+
+.notify-status-text {
+  margin: 0 0 12px !important;
+  font-size: 0.86rem !important;
+  line-height: 1.45;
+}
+
+#btnEnableNotify {
+  width: 100%;
 }
 
 .btn-danger-soft {

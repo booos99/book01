@@ -178,8 +178,6 @@
     }
   };
 
-  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
-
   const defaultState = () => ({
     tasks: [],
     goals: [],
@@ -936,11 +934,6 @@
     catch { return path; }
   }
 
-  function isStandaloneApp() {
-    return window.matchMedia("(display-mode: standalone)").matches
-      || window.navigator.standalone === true;
-  }
-
   function buildUpcomingScheduleEvents() {
     const now = Date.now();
     const horizon = now + 7 * 24 * 60 * 60 * 1000;
@@ -1066,36 +1059,47 @@
 
   function updateNotifyStatus() {
     const text = $("#notifyStatusText");
-    const list = $("#notifyChecklist");
+    const pill = $("#notifyPill");
+    const btn = $("#btnEnableNotify");
     if (!text) return;
 
     const permission = ("Notification" in window) ? Notification.permission : "unsupported";
-    const swOk = !!(navigator.serviceWorker && (swRegistration || navigator.serviceWorker.controller));
-    const installed = isStandaloneApp();
-    const secure = window.isSecureContext;
 
     if (permission === "unsupported") {
-      text.textContent = "هذا المتصفح لا يدعم واجهة الإشعارات.";
-    } else if (permission === "granted") {
-      text.textContent = "الإشعارات مفعّلة ✅. استخدم زر الاختبار للتأكد أنها تظهر في مركز التنبيهات/شاشة القفل.";
-    } else if (permission === "denied") {
-      text.textContent = "الإشعارات مرفوضة ❌. افتح إعدادات الموقع/التطبيق وفعّلها يدوياً.";
-    } else {
-      text.textContent = "الإشعارات غير مفعّلة بعد. اضغط «تفعيل الإشعارات» واسمح بها.";
+      text.textContent = "هذا المتصفح لا يدعم الإشعارات.";
+      if (pill) { pill.textContent = "غير مدعوم"; pill.className = "notify-pill off"; }
+      if (btn) btn.hidden = true;
+      return;
     }
 
-    if (list) {
-      const rows = [
-        { ok: secure, warn: false, label: secure ? "اتصال آمن (HTTPS) جاهز" : "يحتاج HTTPS أو localhost" },
-        { ok: permission === "granted", warn: permission === "default", label: permission === "granted" ? "إذن الإشعارات ممنوح" : permission === "denied" ? "إذن الإشعارات مرفوض" : "إذن الإشعارات لم يُطلب بعد" },
-        { ok: swOk, warn: false, label: swOk ? "Service Worker يعمل" : "Service Worker غير مفعّل بعد" },
-        { ok: installed, warn: !installed, label: installed ? "التطبيق مثبت على الشاشة الرئيسية" : "يُفضّل تثبيته على الشاشة الرئيسية (مهم للآيفون)" },
-      ];
-      list.innerHTML = rows.map((r) => {
-        const cls = r.ok ? "ok" : r.warn ? "warn" : "bad";
-        const mark = r.ok ? "✅" : r.warn ? "⚠️" : "❌";
-        return `<li class="${cls}">${mark} ${r.label}</li>`;
-      }).join("");
+    if (permission === "granted") {
+      text.textContent = "مفعّلة — ستظهر التذكيرات في التنبيهات وحسب إعدادات شاشة القفل في هاتفك.";
+      if (pill) { pill.textContent = "مفعّلة"; pill.className = "notify-pill on"; }
+      if (btn) {
+        btn.hidden = false;
+        btn.textContent = "🔔 الإشعارات مفعّلة";
+        btn.disabled = true;
+      }
+      return;
+    }
+
+    if (permission === "denied") {
+      text.textContent = "مرفوضة من إعدادات الهاتف/المتصفح. فعّلها يدوياً ثم أعد فتح التطبيق.";
+      if (pill) { pill.textContent = "مرفوضة"; pill.className = "notify-pill off"; }
+      if (btn) {
+        btn.hidden = false;
+        btn.disabled = false;
+        btn.textContent = "🔔 فتح إعدادات الإشعارات";
+      }
+      return;
+    }
+
+    text.textContent = "غير مفعّلة بعد. اضغط الزر للسماح بالإشعارات.";
+    if (pill) { pill.textContent = "غير مفعّلة"; pill.className = "notify-pill off"; }
+    if (btn) {
+      btn.hidden = false;
+      btn.disabled = false;
+      btn.textContent = "🔔 تفعيل الإشعارات";
     }
   }
 
@@ -1271,22 +1275,6 @@
     }
   }
 
-  async function sendTestNotification(delayMs = 0) {
-    const ok = await ensureNotifyPermission();
-    if (!ok) return;
-    if (delayMs > 0) {
-      toast(`سيتم إرسال إشعار تجريبي بعد ${Math.round(delayMs / 1000)} ثوانٍ`);
-      setTimeout(() => {
-        showLocalNotification("اختبار مؤجّل ✅", "إذا ظهر هذا في التنبيهات/شاشة القفل فالإعداد صحيح");
-      }, delayMs);
-      return;
-    }
-    const sent = await showLocalNotification(
-      "اختبار إشعار مهامي ✅",
-      "إذا رأيت هذا في مركز الإشعارات أو شاشة القفل فالإعدادات تعمل"
-    );
-    toast(sent ? "تم إرسال إشعار تجريبي" : "تعذر إرسال الإشعار");
-  }
 
   async function checkDueReminders() {
     const now = Date.now();
@@ -1535,8 +1523,6 @@
 
     $("#btnNotify")?.addEventListener("click", () => ensureNotifyPermission());
     $("#btnEnableNotify")?.addEventListener("click", () => ensureNotifyPermission());
-    $("#btnTestNotify")?.addEventListener("click", () => sendTestNotification(0));
-    $("#btnTestNotifySoon")?.addEventListener("click", () => sendTestNotification(10000));
     $("#btnTheme")?.addEventListener("click", toggleTheme);
 
     $("#btnExportData")?.addEventListener("click", exportData);

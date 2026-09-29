@@ -1,4 +1,4 @@
-const CACHE = "mahami-v8";
+const CACHE = "mahami-v9";
 const SCHEDULE_DB = "mahami-notify-db";
 const SCHEDULE_STORE = "schedule";
 const ASSETS = [
@@ -172,15 +172,6 @@ self.addEventListener("message", (event) => {
   }
   if (data.type === "CHECK_DUE") {
     event.waitUntil(checkScheduledNotifications());
-  }
-  if (data.type === "TEST_NOTIFY") {
-    event.waitUntil(
-      showSystemNotification(
-        data.title || "اختبار إشعار مهامي",
-        data.body || "إذا رأيت هذا الإشعار فالإعدادات تعمل ✅",
-        `test-${Date.now()}`
-      )
-    );
   }
 });
 

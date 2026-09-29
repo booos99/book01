@@ -137,22 +137,13 @@
 
       <!-- التذكيرات -->
       <section id="panel-reminders" class="panel" role="tabpanel" hidden>
-        <div class="info-card" id="notifyStatus">
-          <strong>إعدادات الإشعارات والتنبيهات</strong>
-          <p id="notifyStatusText">جاري التحقق...</p>
-          <ul class="notify-checklist" id="notifyChecklist"></ul>
-          <div class="data-actions">
-            <button type="button" class="btn btn-primary" id="btnEnableNotify">🔔 تفعيل الإشعارات</button>
-            <button type="button" class="btn btn-ghost" id="btnTestNotify">🧪 إرسال إشعار تجريبي الآن</button>
-            <button type="button" class="btn btn-ghost" id="btnTestNotifySoon">⏱️ تجربة بعد 10 ثوانٍ</button>
+        <div class="info-card notify-card" id="notifyStatus">
+          <div class="notify-card-head">
+            <strong>الإشعارات</strong>
+            <span class="notify-pill" id="notifyPill">—</span>
           </div>
-          <div class="notify-help">
-            <strong>ليظهر على شاشة القفل:</strong>
-            <p class="muted" style="margin:6px 0 0">
-              <b>Android:</b> الإعدادات → الإشعارات → مهامي → السماح + إظهار على شاشة القفل.<br/>
-              <b>iPhone:</b> أضف الموقع للشاشة الرئيسية أولاً، ثم الإعدادات → الإشعارات → مهامي → السماح على شاشة القفل والشعار.
-            </p>
-          </div>
+          <p id="notifyStatusText" class="notify-status-text">جاري التحقق...</p>
+          <button type="button" class="btn btn-primary" id="btnEnableNotify">🔔 تفعيل الإشعارات</button>
         </div>
         <div id="remindersList" class="cards-list"></div>
         <div class="empty" id="remindersEmpty" hidden>
