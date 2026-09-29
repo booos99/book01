@@ -21,6 +21,141 @@
     return `${y}-${m}-${day}`;
   };
 
+  const addDaysISO = (iso, days) => {
+    const d = new Date(`${iso}T12:00:00`);
+    d.setDate(d.getDate() + days);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const timestampFromISOAndTime = (iso, time) => {
+    if (!iso || !time) return null;
+    const ts = new Date(`${iso}T${time}:00`).getTime();
+    return Number.isNaN(ts) ? null : ts;
+  };
+
+  const normalizeReminderRecord = (r) => {
+    const base = {
+      id: String(r.id),
+      title: String(r.title || "").slice(0, 120),
+      createdAt: typeof r.createdAt === "number" ? r.createdAt : Date.now(),
+    };
+    const type = r.type === "daily" ? "daily" : "once";
+    if (type === "daily") {
+      return {
+        ...base,
+        type: "daily",
+        startDate: r.startDate || "",
+        endDate: r.endDate || "",
+        time: r.time || "09:00",
+        at: null,
+      };
+    }
+    const at = typeof r.at === "number"
+      ? r.at
+      : timestampFromISOAndTime(r.date, r.time) || Date.now();
+    return { ...base, type: "once", at };
+  };
+
+  const reminderAtForDay = (reminder, dateISO) => {
+    if (reminder.type !== "daily") return null;
+    if (!reminder.startDate || !reminder.endDate || !reminder.time) return null;
+    if (dateISO < reminder.startDate || dateISO > reminder.endDate) return null;
+    return timestampFromISOAndTime(dateISO, reminder.time);
+  };
+
+  const dailyReminderFireId = (reminderId, dateISO) => `rem-${reminderId}-${dateISO}`;
+
+  const reminderDisplayMeta = (reminder) => {
+    if (reminder.type === "daily") {
+      const today = todayISO();
+      const active = reminder.startDate && reminder.endDate
+        && today >= reminder.startDate && today <= reminder.endDate;
+      const upcoming = reminder.startDate && today < reminder.startDate;
+      const ended = reminder.endDate && today > reminder.endDate;
+      const nextAt = (() => {
+        if (ended) return reminderAtForDay(reminder, reminder.endDate) || 0;
+        if (upcoming) return reminderAtForDay(reminder, reminder.startDate) || 0;
+        const todayAt = reminderAtForDay(reminder, today);
+        if (todayAt && todayAt >= Date.now()) return todayAt;
+        const tomorrow = addDaysISO(today, 1);
+        if (tomorrow <= reminder.endDate) return reminderAtForDay(reminder, tomorrow) || todayAt || 0;
+        return reminderAtForDay(reminder, today) || 0;
+      })();
+      return {
+        kind: "daily",
+        at: nextAt,
+        active,
+        upcoming,
+        ended,
+        label: `يومياً ${reminder.time} · ${formatShort(reminder.startDate)} → ${formatShort(reminder.endDate)}`,
+      };
+    }
+    return {
+      kind: "once",
+      at: reminder.at,
+      active: false,
+      upcoming: reminder.at > Date.now(),
+      ended: reminder.at < Date.now(),
+      label: formatShort(new Date(reminder.at).toISOString().slice(0, 10), `${String(new Date(reminder.at).getHours()).padStart(2, "0")}:${String(new Date(reminder.at).getMinutes()).padStart(2, "0")}`),
+    };
+  };
+
+  const buildReminderNotificationEvents = () => {
+    const now = Date.now();
+    const today = todayISO();
+    const events = [];
+
+    state.tasks
+      .filter((t) => t.reminderAt && !t.done)
+      .forEach((t) => {
+        events.push({
+          id: `task-${t.id}`,
+          source: "task",
+          sourceId: t.id,
+          title: t.title,
+          at: t.reminderAt,
+          priority: t.priority,
+          kind: "once",
+        });
+      });
+
+    state.reminders.forEach((r) => {
+      if (r.type === "daily") {
+        const at = reminderAtForDay(r, today);
+        if (!at) return;
+        events.push({
+          id: dailyReminderFireId(r.id, today),
+          source: "reminder",
+          sourceId: r.id,
+          title: r.title,
+          at,
+          priority: "normal",
+          kind: "daily",
+        });
+        return;
+      }
+      if (typeof r.at === "number") {
+        events.push({
+          id: `rem-${r.id}`,
+          source: "reminder",
+          sourceId: r.id,
+          title: r.title,
+          at: r.at,
+          priority: "normal",
+          kind: "once",
+        });
+      }
+    });
+
+    return events
+      .filter((e) => e.at)
+      .sort((a, b) => a.at - b.at)
+      .map((e) => ({ ...e, past: e.at < now }));
+  };
+
   const formatDateAr = (iso) => {
     if (!iso) return "";
     try {
@@ -91,12 +226,9 @@
         })),
         createdAt: typeof p.createdAt === "number" ? p.createdAt : Date.now(),
       })),
-      reminders: safeArr(data.reminders).filter((r) => r && r.id && r.title && typeof r.at === "number").map((r) => ({
-        id: String(r.id),
-        title: String(r.title || "").slice(0, 120),
-        at: r.at,
-        createdAt: typeof r.createdAt === "number" ? r.createdAt : Date.now(),
-      })),
+      reminders: safeArr(data.reminders)
+        .filter((r) => r && r.id && r.title)
+        .map(normalizeReminderRecord),
       firedReminderIds: safeArr(data.firedReminderIds).map(String).slice(-200),
     };
   }
@@ -409,7 +541,7 @@
     }).join("");
   }
 
-  function allUpcomingReminders() {
+  function getReminderListItems() {
     const now = Date.now();
     const fromTasks = state.tasks
       .filter((t) => t.reminderAt && !t.done)
@@ -420,23 +552,46 @@
         title: t.title,
         at: t.reminderAt,
         priority: t.priority,
+        kind: "once",
+        label: formatShort(
+          new Date(t.reminderAt).toISOString().slice(0, 10),
+          `${String(new Date(t.reminderAt).getHours()).padStart(2, "0")}:${String(new Date(t.reminderAt).getMinutes()).padStart(2, "0")}`
+        ),
+        past: t.reminderAt < now,
+        status: t.reminderAt < now ? "منتهي" : "قادم",
       }));
-    const standalone = state.reminders.map((r) => ({
-      id: `rem-${r.id}`,
-      source: "reminder",
-      sourceId: r.id,
-      title: r.title,
-      at: r.at,
-      priority: "normal",
-    }));
+
+    const standalone = state.reminders.map((r) => {
+      const meta = reminderDisplayMeta(r);
+      let status = "قادم";
+      if (r.type === "daily") {
+        if (meta.ended) status = "منتهي";
+        else if (meta.active) status = "نشط يومياً";
+        else if (meta.upcoming) status = "يبدأ قريباً";
+      } else {
+        status = meta.ended ? "منتهي" : "قادم";
+      }
+      return {
+        id: r.type === "daily" ? `rem-daily-${r.id}` : `rem-${r.id}`,
+        source: "reminder",
+        sourceId: r.id,
+        title: r.title,
+        at: meta.at,
+        priority: "normal",
+        kind: meta.kind,
+        label: meta.label,
+        past: meta.ended || (meta.kind === "once" && meta.at < now),
+        status,
+      };
+    });
+
     return [...fromTasks, ...standalone]
       .filter((r) => r.at)
-      .sort((a, b) => a.at - b.at)
-      .map((r) => ({ ...r, past: r.at < now }));
+      .sort((a, b) => a.at - b.at);
   }
 
   function renderReminders() {
-    const list = allUpcomingReminders();
+    const list = getReminderListItems();
     const box = $("#remindersList");
     const empty = $("#remindersEmpty");
     empty.hidden = list.length > 0;
@@ -449,10 +604,12 @@
         <article class="card ${r.past ? "done-card" : ""} ${r.priority === "urgent" ? "urgent-card" : ""}">
           <h3 class="card-title">⏰ ${escapeHtml(r.title)}</h3>
           <div class="card-meta">
-            <span class="badge date">${when}</span>
+            <span class="badge date">${escapeHtml(r.label || when)}</span>
             <span class="badge">${r.source === "task" ? "من مهمة" : "تذكير مستقل"}</span>
-            ${r.past ? `<span class="badge">منتهي</span>` : `<span class="badge">قادم</span>`}
+            ${r.kind === "daily" ? `<span class="badge goal">يومي 🔁</span>` : ""}
+            <span class="badge">${r.status || (r.past ? "منتهي" : "قادم")}</span>
           </div>
+          ${r.kind === "daily" ? `<p class="muted" style="margin:8px 0 0;font-size:0.82rem">التنبيه القادم: ${when}</p>` : ""}
           ${r.source === "reminder" ? `
             <div class="card-actions">
               <button type="button" class="btn-mini danger" data-action="delete-reminder" data-id="${r.sourceId}">حذف</button>
@@ -584,10 +741,27 @@
     openSheet($("#planModal"));
   }
 
+  function syncReminderTypeFields() {
+    const type = ($("input[name='remType']:checked") || {}).value || "once";
+    const once = type === "once";
+    $("#remOnceFields").hidden = !once;
+    $("#remDailyFields").hidden = once;
+    $("#remDate").required = once;
+    $("#remTime").required = once;
+    $("#remStartDate").required = !once;
+    $("#remEndDate").required = !once;
+    $("#remDailyTime").required = !once;
+  }
+
   function openReminderModal() {
     $("#remTitle").value = "";
+    $$("input[name='remType']").forEach((r) => { r.checked = r.value === "once"; });
     $("#remDate").value = todayISO();
     $("#remTime").value = "09:00";
+    $("#remStartDate").value = todayISO();
+    $("#remEndDate").value = addDaysISO(todayISO(), 7);
+    $("#remDailyTime").value = "09:00";
+    syncReminderTypeFields();
     openSheet($("#reminderModal"));
   }
 
@@ -700,7 +874,9 @@
   function deleteReminder(id) {
     if (!confirm("حذف هذا التذكير؟")) return;
     state.reminders = state.reminders.filter((r) => r.id !== id);
-    state.firedReminderIds = state.firedReminderIds.filter((x) => x !== `rem-${id}`);
+    state.firedReminderIds = state.firedReminderIds.filter(
+      (x) => x !== `rem-${id}` && !x.startsWith(`rem-${id}-`)
+    );
     save();
     render();
     toast("تم حذف التذكير");
@@ -909,7 +1085,7 @@
 
   async function checkDueReminders() {
     const now = Date.now();
-    const items = allUpcomingReminders().filter((r) => !r.past || (now - r.at) < 60000);
+    const items = buildReminderNotificationEvents().filter((r) => !r.past || (now - r.at) < 60000);
     for (const r of items) {
       if (r.at > now) continue;
       if (state.firedReminderIds.includes(r.id)) continue;
@@ -956,6 +1132,10 @@
     $("#btnCancelGoal").addEventListener("click", closeAllSheets);
     $("#btnCancelPlan").addEventListener("click", closeAllSheets);
     $("#btnCancelRem").addEventListener("click", closeAllSheets);
+
+    $$("input[name='remType']").forEach((r) => {
+      r.addEventListener("change", syncReminderTypeFields);
+    });
 
     $("#taskReminder").addEventListener("change", (e) => {
       $("#reminderFields").hidden = !e.target.checked;
@@ -1058,11 +1238,44 @@
     $("#reminderForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const title = $("#remTitle").value.trim();
+      if (!title) return;
+      const type = ($("input[name='remType']:checked") || {}).value || "once";
+      await ensureNotifyPermission();
+
+      if (type === "daily") {
+        const startDate = $("#remStartDate").value;
+        const endDate = $("#remEndDate").value;
+        const time = $("#remDailyTime").value || "09:00";
+        if (!startDate || !endDate || !time) {
+          toast("أكمل تواريخ ووقت التذكير اليومي");
+          return;
+        }
+        if (endDate < startDate) {
+          toast("تاريخ النهاية يجب أن يكون بعد تاريخ البداية");
+          return;
+        }
+        addStandaloneReminder({
+          title,
+          type: "daily",
+          startDate,
+          endDate,
+          time,
+          at: null,
+        });
+        closeAllSheets();
+        toast("تم حفظ التذكير اليومي");
+        setTab("reminders");
+        return;
+      }
+
       const date = $("#remDate").value;
       const time = $("#remTime").value;
-      const at = new Date(`${date}T${time}:00`).getTime();
-      await ensureNotifyPermission();
-      addStandaloneReminder({ title, at });
+      const at = timestampFromISOAndTime(date, time);
+      if (!at) {
+        toast("أكمل تاريخ ووقت التذكير");
+        return;
+      }
+      addStandaloneReminder({ title, type: "once", at });
       closeAllSheets();
       toast("تم حفظ التذكير");
       setTab("reminders");

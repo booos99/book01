@@ -288,13 +288,35 @@
         <label>النص
           <input type="text" id="remTitle" required maxlength="120" placeholder="مثال: اشرب الماء" />
         </label>
-        <div class="row-2">
-          <label>التاريخ
-            <input type="date" id="remDate" required />
+        <label>نوع التذكير
+          <div class="priority-toggle">
+            <label class="prio"><input type="radio" name="remType" value="once" checked /> مرة واحدة</label>
+            <label class="prio urgent"><input type="radio" name="remType" value="daily" /> يومي 🔁</label>
+          </div>
+        </label>
+        <div id="remOnceFields">
+          <div class="row-2">
+            <label>التاريخ
+              <input type="date" id="remDate" />
+            </label>
+            <label>الوقت
+              <input type="time" id="remTime" value="09:00" />
+            </label>
+          </div>
+        </div>
+        <div id="remDailyFields" hidden>
+          <div class="row-2">
+            <label>من تاريخ
+              <input type="date" id="remStartDate" />
+            </label>
+            <label>إلى تاريخ
+              <input type="date" id="remEndDate" />
+            </label>
+          </div>
+          <label>وقت التذكير اليومي
+            <input type="time" id="remDailyTime" value="09:00" />
           </label>
-          <label>الوقت
-            <input type="time" id="remTime" required />
-          </label>
+          <p class="muted" style="margin:0 0 8px;font-size:0.82rem">سيصلك إشعار كل يوم ضمن الفترة المحددة في هذا الوقت.</p>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-ghost" id="btnCancelRem">إلغاء</button>
