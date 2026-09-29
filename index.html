@@ -2,11 +2,13 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <meta name="theme-color" content="#3b82f6" id="metaThemeColor" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="مهامي" />
+  <meta name="format-detection" content="telephone=no" />
   <meta name="description" content="تطبيق إدارة المهام اليومية والأهداف والخطط مع تذكيرات وإشعارات" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
@@ -14,18 +16,29 @@
   <title>مهامي — إدارة المهام والأهداف</title>
   <link rel="stylesheet" href="styles.css" />
   <script>
-    // تطبيق الثيم مبكراً لتقليل وميض الألوان
     (function () {
       try {
         var t = localStorage.getItem("mahami-theme");
         if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
       } catch (e) {}
+      function setAppHeight() {
+        var h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        document.documentElement.style.setProperty("--app-height", h + "px");
+      }
+      setAppHeight();
+      window.addEventListener("resize", setAppHeight);
+      window.addEventListener("orientationchange", function () { setTimeout(setAppHeight, 80); });
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", setAppHeight);
+        window.visualViewport.addEventListener("scroll", setAppHeight);
+      }
     })();
   </script>
 </head>
 <body>
   <div id="app">
+    <div class="app-shell">
     <header class="app-header">
       <div class="header-top">
         <div>
@@ -155,6 +168,7 @@
         </div>
       </section>
     </main>
+    </div>
 
     <!-- نموذج المهمة -->
     <div class="sheet-backdrop" id="modalBackdrop" hidden></div>

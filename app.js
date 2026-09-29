@@ -235,6 +235,8 @@
       p.classList.toggle("active", on);
       p.hidden = !on;
     });
+    const content = $(".content");
+    if (content) content.scrollTop = 0;
     render();
   }
 
