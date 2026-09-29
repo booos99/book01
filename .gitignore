@@ -1,0 +1,9 @@
+# أسرار وصلاحيات محلية — لا تُرفع إلى GitHub
+.env
+.env.local
+.mahami-github.env
+.github-credentials
+*.token
+.DS_Store
+node_modules/
+.cache/

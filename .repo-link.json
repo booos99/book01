@@ -1,0 +1,12 @@
+{
+  "linked": true,
+  "provider": "github",
+  "owner": "booos99",
+  "repo": "book01",
+  "branch": "main",
+  "url": "https://github.com/booos99/book01",
+  "clone_url": "https://github.com/booos99/book01.git",
+  "credentials_file": ".mahami-github.env",
+  "push_script": "scripts/git-sync.sh",
+  "notes_ar": "هذا الملف يحفظ ربط المشروع بالمستودع. التوكن محفوظ في .mahami-github.env وهو مستبعد من Git."
+}
