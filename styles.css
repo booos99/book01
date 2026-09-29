@@ -242,6 +242,40 @@ input, textarea, select, button, [contenteditable] {
   transform: scale(0.94);
 }
 
+.notify-btn {
+  position: relative;
+}
+
+.notify-btn.on {
+  background: rgba(52, 211, 153, 0.28);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.45);
+}
+
+.notify-btn.off {
+  background: rgba(251, 113, 133, 0.22);
+  box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.35);
+}
+
+.notify-btn::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.notify-btn.on::after {
+  background: #34d399;
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.25);
+}
+
+.notify-btn.off::after {
+  background: #fb7185;
+}
+
 .stats-bar {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -850,46 +884,6 @@ form textarea {
 .data-hint {
   margin: 12px 0 0 !important;
   font-size: 0.82rem !important;
-}
-
-.notify-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.notify-pill {
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  color: var(--muted-text);
-}
-
-.notify-pill.on {
-  background: var(--ok-bg);
-  color: var(--ok);
-  border-color: rgba(16, 185, 129, 0.35);
-}
-
-.notify-pill.off {
-  background: var(--urgent-bg);
-  color: var(--urgent);
-  border-color: rgba(244, 63, 94, 0.3);
-}
-
-.notify-status-text {
-  margin: 0 0 12px !important;
-  font-size: 0.86rem !important;
-  line-height: 1.45;
-}
-
-#btnEnableNotify {
-  width: 100%;
 }
 
 .btn-danger-soft {

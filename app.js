@@ -1058,49 +1058,50 @@
   }
 
   function updateNotifyStatus() {
-    const text = $("#notifyStatusText");
-    const pill = $("#notifyPill");
-    const btn = $("#btnEnableNotify");
-    if (!text) return;
-
+    const btn = $("#btnNotify");
+    if (!btn) return;
     const permission = ("Notification" in window) ? Notification.permission : "unsupported";
-
-    if (permission === "unsupported") {
-      text.textContent = "هذا المتصفح لا يدعم الإشعارات.";
-      if (pill) { pill.textContent = "غير مدعوم"; pill.className = "notify-pill off"; }
-      if (btn) btn.hidden = true;
-      return;
-    }
+    btn.classList.remove("on", "off");
 
     if (permission === "granted") {
-      text.textContent = "مفعّلة — ستظهر التذكيرات في التنبيهات وحسب إعدادات شاشة القفل في هاتفك.";
-      if (pill) { pill.textContent = "مفعّلة"; pill.className = "notify-pill on"; }
-      if (btn) {
-        btn.hidden = false;
-        btn.textContent = "🔔 الإشعارات مفعّلة";
-        btn.disabled = true;
-      }
+      btn.classList.add("on");
+      btn.title = "الإشعارات مفعّلة";
+      btn.setAttribute("aria-label", "الإشعارات مفعّلة");
+      btn.textContent = "🔔";
       return;
     }
 
+    btn.classList.add("off");
     if (permission === "denied") {
-      text.textContent = "مرفوضة من إعدادات الهاتف/المتصفح. فعّلها يدوياً ثم أعد فتح التطبيق.";
-      if (pill) { pill.textContent = "مرفوضة"; pill.className = "notify-pill off"; }
-      if (btn) {
-        btn.hidden = false;
-        btn.disabled = false;
-        btn.textContent = "🔔 فتح إعدادات الإشعارات";
-      }
+      btn.title = "الإشعارات مرفوضة — اضغط للمساعدة";
+      btn.setAttribute("aria-label", "الإشعارات مرفوضة");
+    } else if (permission === "unsupported") {
+      btn.title = "الإشعارات غير مدعومة";
+      btn.setAttribute("aria-label", "الإشعارات غير مدعومة");
+    } else {
+      btn.title = "تفعيل الإشعارات";
+      btn.setAttribute("aria-label", "تفعيل الإشعارات");
+    }
+    btn.textContent = "🔔";
+  }
+
+  async function handleNotifyButton() {
+    if (!("Notification" in window)) {
+      toast("المتصفح لا يدعم الإشعارات");
       return;
     }
-
-    text.textContent = "غير مفعّلة بعد. اضغط الزر للسماح بالإشعارات.";
-    if (pill) { pill.textContent = "غير مفعّلة"; pill.className = "notify-pill off"; }
-    if (btn) {
-      btn.hidden = false;
-      btn.disabled = false;
-      btn.textContent = "🔔 تفعيل الإشعارات";
+    if (Notification.permission === "granted") {
+      await syncScheduleToServiceWorker();
+      updateNotifyStatus();
+      toast("الإشعارات مفعّلة ✅");
+      return;
     }
+    if (Notification.permission === "denied") {
+      updateNotifyStatus();
+      toast("مرفوضة من إعدادات الهاتف — فعّلها يدوياً ثم أعد الفتح");
+      return;
+    }
+    await ensureNotifyPermission();
   }
 
   function updateDataStatsHint() {
@@ -1521,8 +1522,7 @@
       if (action === "delete-reminder") deleteReminder(id);
     });
 
-    $("#btnNotify")?.addEventListener("click", () => ensureNotifyPermission());
-    $("#btnEnableNotify")?.addEventListener("click", () => ensureNotifyPermission());
+    $("#btnNotify")?.addEventListener("click", () => handleNotifyButton());
     $("#btnTheme")?.addEventListener("click", toggleTheme);
 
     $("#btnExportData")?.addEventListener("click", exportData);

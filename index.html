@@ -47,7 +47,7 @@
         </div>
         <div class="header-actions">
           <button type="button" class="icon-btn" id="btnTheme" title="تبديل النمط" aria-label="تبديل النمط الداكن/الفاتح">🌙</button>
-          <button type="button" class="icon-btn" id="btnNotify" title="تفعيل الإشعارات" aria-label="تفعيل الإشعارات">🔔</button>
+          <button type="button" class="icon-btn notify-btn" id="btnNotify" title="الإشعارات" aria-label="إدارة الإشعارات">🔔</button>
           <button type="button" class="icon-btn" id="btnInstall" title="تثبيت التطبيق" aria-label="تثبيت التطبيق" hidden>⬇️</button>
         </div>
       </div>
@@ -137,18 +137,11 @@
 
       <!-- التذكيرات -->
       <section id="panel-reminders" class="panel" role="tabpanel" hidden>
-        <div class="info-card notify-card" id="notifyStatus">
-          <div class="notify-card-head">
-            <strong>الإشعارات</strong>
-            <span class="notify-pill" id="notifyPill">—</span>
-          </div>
-          <p id="notifyStatusText" class="notify-status-text">جاري التحقق...</p>
-          <button type="button" class="btn btn-primary" id="btnEnableNotify">🔔 تفعيل الإشعارات</button>
-        </div>
         <div id="remindersList" class="cards-list"></div>
         <div class="empty" id="remindersEmpty" hidden>
           <div class="empty-icon">⏰</div>
           <p>لا توجد تذكيرات قادمة</p>
+          <p class="muted">اضغط «تذكير» بالأعلى لإضافة تذكير</p>
         </div>
       </section>
 
