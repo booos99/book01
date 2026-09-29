@@ -1,0 +1,933 @@
+(() => {
+  "use strict";
+
+  const STORAGE_KEY = "mahami-v1";
+  const CHECK_INTERVAL_MS = 20000;
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+  const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const todayISO = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const formatDateAr = (iso) => {
+    if (!iso) return "";
+    try {
+      const d = new Date(`${iso}T12:00:00`);
+      return d.toLocaleDateString("ar-SA", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    } catch {
+      return iso;
+    }
+  };
+
+  const formatShort = (iso, time) => {
+    if (!iso) return "";
+    const d = new Date(`${iso}T${time || "12:00"}:00`);
+    const datePart = d.toLocaleDateString("ar-SA", { month: "short", day: "numeric" });
+    return time ? `${datePart} · ${time}` : datePart;
+  };
+
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+
+  const defaultState = () => ({
+    tasks: [],
+    goals: [],
+    plans: [],
+    reminders: [],
+    firedReminderIds: [],
+  });
+
+  let state = load();
+  let currentFilter = "all";
+  let deferredInstallPrompt = null;
+  let toastTimer = null;
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return defaultState();
+      const parsed = JSON.parse(raw);
+      return { ...defaultState(), ...parsed };
+    } catch {
+      return defaultState();
+    }
+  }
+
+  function save() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function toast(msg) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  }
+
+  function taskProgress(task) {
+    const steps = task.steps || [];
+    if (!steps.length) return task.done ? 100 : 0;
+    const done = steps.filter((s) => s.done).length;
+    return Math.round((done / steps.length) * 100);
+  }
+
+  function goalProgress(goal) {
+    const related = state.tasks.filter((t) => t.goalId === goal.id);
+    if (!related.length) return 0;
+    const sum = related.reduce((acc, t) => acc + taskProgress(t), 0);
+    return Math.round(sum / related.length);
+  }
+
+  function planProgress(plan) {
+    const phases = plan.phases || [];
+    if (!phases.length) return 0;
+    const done = phases.filter((p) => p.done).length;
+    return Math.round((done / phases.length) * 100);
+  }
+
+  function updateStats() {
+    const today = todayISO();
+    const todayTasks = state.tasks.filter((t) => t.date === today);
+    const done = todayTasks.filter((t) => t.done || taskProgress(t) === 100).length;
+    const pending = todayTasks.length - done;
+    const urgent = state.tasks.filter((t) => !t.done && t.priority === "urgent").length;
+    const pct = todayTasks.length ? Math.round((done / todayTasks.length) * 100) : 0;
+
+    $("#statDone").textContent = String(done);
+    $("#statPending").textContent = String(pending);
+    $("#statUrgent").textContent = String(urgent);
+    $("#dayPercent").textContent = `${pct}%`;
+    $("#dayRing").style.setProperty("--p", pct);
+    $("#todayLabel").textContent = formatDateAr(today);
+  }
+
+  function fillGoalSelect(selected) {
+    const sel = $("#taskGoal");
+    sel.innerHTML = `<option value="">— بدون —</option>` +
+      state.goals.map((g) => `<option value="${g.id}">${escapeHtml(g.title)}</option>`).join("");
+    if (selected) sel.value = selected;
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /* ---------- Tabs ---------- */
+  function setTab(name) {
+    $$(".tab").forEach((t) => {
+      const active = t.dataset.tab === name;
+      t.classList.toggle("active", active);
+      t.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    $$(".panel").forEach((p) => {
+      const on = p.id === `panel-${name}`;
+      p.classList.toggle("active", on);
+      p.hidden = !on;
+    });
+    render();
+  }
+
+  /* ---------- Render ---------- */
+  function render() {
+    updateStats();
+    renderTasks();
+    renderGoals();
+    renderPlans();
+    renderReminders();
+    updateNotifyStatus();
+  }
+
+  function getSortedFilteredTasks() {
+    let list = [...state.tasks];
+    const today = todayISO();
+
+    switch (currentFilter) {
+      case "today":
+        list = list.filter((t) => t.date === today);
+        break;
+      case "urgent":
+        list = list.filter((t) => t.priority === "urgent" && !t.done);
+        break;
+      case "pending":
+        list = list.filter((t) => !t.done && taskProgress(t) < 100);
+        break;
+      case "done":
+        list = list.filter((t) => t.done || taskProgress(t) === 100);
+        break;
+      default:
+        break;
+    }
+
+    const sort = $("#sortTasks").value;
+    list.sort((a, b) => {
+      if (sort === "priority") {
+        const pa = a.priority === "urgent" ? 0 : 1;
+        const pb = b.priority === "urgent" ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        return (a.date || "").localeCompare(b.date || "");
+      }
+      if (sort === "date") return (a.date || "").localeCompare(b.date || "") || (a.time || "").localeCompare(b.time || "");
+      if (sort === "progress") return taskProgress(b) - taskProgress(a);
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+    return list;
+  }
+
+  function renderTasks() {
+    const list = getSortedFilteredTasks();
+    const box = $("#tasksList");
+    const empty = $("#tasksEmpty");
+    empty.hidden = list.length > 0;
+    box.innerHTML = list.map((task) => {
+      const pct = taskProgress(task);
+      const goal = state.goals.find((g) => g.id === task.goalId);
+      const stepsHtml = (task.steps || []).length
+        ? `<div class="steps-list">${task.steps.map((s, i) => `
+            <label class="step-item ${s.done ? "done" : ""}">
+              <input type="checkbox" data-action="toggle-step" data-id="${task.id}" data-idx="${i}" ${s.done ? "checked" : ""} />
+              <span>${escapeHtml(s.text)}</span>
+            </label>`).join("")}</div>`
+        : "";
+
+      return `
+        <article class="card ${task.priority === "urgent" ? "urgent-card" : ""} ${task.done || pct === 100 ? "done-card" : ""}" data-id="${task.id}">
+          <div class="card-top">
+            <input class="card-check" type="checkbox" data-action="toggle-task" data-id="${task.id}" ${task.done || pct === 100 ? "checked" : ""} />
+            <div class="card-body">
+              <h3 class="card-title">${escapeHtml(task.title)}</h3>
+              ${task.desc ? `<p class="muted" style="margin:6px 0 0;font-size:0.85rem">${escapeHtml(task.desc)}</p>` : ""}
+              <div class="card-meta">
+                <span class="badge ${task.priority === "urgent" ? "urgent" : ""}">${task.priority === "urgent" ? "عاجلة 🔥" : "عادية"}</span>
+                <span class="badge date">${formatShort(task.date, task.time)}</span>
+                ${goal ? `<span class="badge goal">🎯 ${escapeHtml(goal.title)}</span>` : ""}
+                ${task.reminderAt ? `<span class="badge">🔔 تذكير</span>` : ""}
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-head"><span>الإنجاز</span><span>${pct}%</span></div>
+                <div class="progress-bar"><div class="progress-fill ${task.priority === "urgent" ? "urgent-fill" : ""}" style="width:${pct}%"></div></div>
+              </div>
+              ${stepsHtml}
+              <div class="card-actions">
+                <button type="button" class="btn-mini" data-action="edit-task" data-id="${task.id}">تعديل</button>
+                <button type="button" class="btn-mini danger" data-action="delete-task" data-id="${task.id}">حذف</button>
+              </div>
+            </div>
+          </div>
+        </article>`;
+    }).join("");
+  }
+
+  function renderGoals() {
+    const box = $("#goalsList");
+    const empty = $("#goalsEmpty");
+    empty.hidden = state.goals.length > 0;
+    box.innerHTML = state.goals.map((goal) => {
+      const pct = goalProgress(goal);
+      const relatedCount = state.tasks.filter((t) => t.goalId === goal.id).length;
+      return `
+        <article class="card">
+          <h3 class="card-title">🎯 ${escapeHtml(goal.title)}</h3>
+          ${goal.desc ? `<p class="muted" style="margin:6px 0 0;font-size:0.85rem">${escapeHtml(goal.desc)}</p>` : ""}
+          <div class="card-meta">
+            ${goal.deadline ? `<span class="badge date">حتى ${formatShort(goal.deadline)}</span>` : ""}
+            <span class="badge">${relatedCount} مهمة مرتبطة</span>
+          </div>
+          <div class="goal-progress-big">
+            <div class="goal-ring" style="--p:${pct}"><span>${pct}%</span></div>
+            <div style="flex:1">
+              <div class="progress-head"><span>تقدم الهدف</span><span>${pct}%</span></div>
+              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="btn-mini" data-action="edit-goal" data-id="${goal.id}">تعديل</button>
+            <button type="button" class="btn-mini danger" data-action="delete-goal" data-id="${goal.id}">حذف</button>
+          </div>
+        </article>`;
+    }).join("");
+  }
+
+  function renderPlans() {
+    const box = $("#plansList");
+    const empty = $("#plansEmpty");
+    empty.hidden = state.plans.length > 0;
+    box.innerHTML = state.plans.map((plan) => {
+      const pct = planProgress(plan);
+      const phases = (plan.phases || []).map((p, i) => `
+        <label class="phase">
+          <div class="phase-top">
+            <span>${escapeHtml(p.text)}</span>
+            <input type="checkbox" data-action="toggle-phase" data-id="${plan.id}" data-idx="${i}" ${p.done ? "checked" : ""} />
+          </div>
+        </label>`).join("");
+
+      return `
+        <article class="card">
+          <h3 class="card-title">🗺️ ${escapeHtml(plan.title)}</h3>
+          ${plan.desc ? `<p class="muted" style="margin:6px 0 0;font-size:0.85rem">${escapeHtml(plan.desc)}</p>` : ""}
+          <div class="card-meta">
+            ${plan.start || plan.end ? `<span class="badge date">${formatShort(plan.start) || "…"} → ${formatShort(plan.end) || "…"}</span>` : ""}
+            <span class="badge">${pct}% مكتمل</span>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+          </div>
+          <div class="plan-phases">${phases}</div>
+          <div class="card-actions">
+            <button type="button" class="btn-mini" data-action="edit-plan" data-id="${plan.id}">تعديل</button>
+            <button type="button" class="btn-mini danger" data-action="delete-plan" data-id="${plan.id}">حذف</button>
+          </div>
+        </article>`;
+    }).join("");
+  }
+
+  function allUpcomingReminders() {
+    const now = Date.now();
+    const fromTasks = state.tasks
+      .filter((t) => t.reminderAt && !t.done)
+      .map((t) => ({
+        id: `task-${t.id}`,
+        source: "task",
+        sourceId: t.id,
+        title: t.title,
+        at: t.reminderAt,
+        priority: t.priority,
+      }));
+    const standalone = state.reminders.map((r) => ({
+      id: `rem-${r.id}`,
+      source: "reminder",
+      sourceId: r.id,
+      title: r.title,
+      at: r.at,
+      priority: "normal",
+    }));
+    return [...fromTasks, ...standalone]
+      .filter((r) => r.at)
+      .sort((a, b) => a.at - b.at)
+      .map((r) => ({ ...r, past: r.at < now }));
+  }
+
+  function renderReminders() {
+    const list = allUpcomingReminders();
+    const box = $("#remindersList");
+    const empty = $("#remindersEmpty");
+    empty.hidden = list.length > 0;
+    box.innerHTML = list.map((r) => {
+      const d = new Date(r.at);
+      const when = d.toLocaleString("ar-SA", {
+        weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+      });
+      return `
+        <article class="card ${r.past ? "done-card" : ""} ${r.priority === "urgent" ? "urgent-card" : ""}">
+          <h3 class="card-title">⏰ ${escapeHtml(r.title)}</h3>
+          <div class="card-meta">
+            <span class="badge date">${when}</span>
+            <span class="badge">${r.source === "task" ? "من مهمة" : "تذكير مستقل"}</span>
+            ${r.past ? `<span class="badge">منتهي</span>` : `<span class="badge">قادم</span>`}
+          </div>
+          ${r.source === "reminder" ? `
+            <div class="card-actions">
+              <button type="button" class="btn-mini danger" data-action="delete-reminder" data-id="${r.sourceId}">حذف</button>
+            </div>` : ""}
+        </article>`;
+    }).join("");
+  }
+
+  /* ---------- Modals / Sheets ---------- */
+  function openSheet(el) {
+    $("#modalBackdrop").hidden = false;
+    el.hidden = false;
+  }
+
+  function closeAllSheets() {
+    $("#modalBackdrop").hidden = true;
+    $("#addMenuBackdrop").hidden = true;
+    $("#addMenu").hidden = true;
+    $("#taskModal").hidden = true;
+    $("#goalModal").hidden = true;
+    $("#planModal").hidden = true;
+    $("#reminderModal").hidden = true;
+  }
+
+  function openAddMenu() {
+    $("#addMenuBackdrop").hidden = false;
+    $("#addMenu").hidden = false;
+  }
+
+  /* Steps editor */
+  function renderStepsEditor(steps = [{ text: "", done: false }]) {
+    const box = $("#stepsEditor");
+    if (!steps.length) steps = [{ text: "", done: false }];
+    box.innerHTML = steps.map((s, i) => `
+      <div class="step-edit">
+        <input type="text" data-step-idx="${i}" value="${escapeHtml(s.text)}" placeholder="خطوة ${i + 1}" maxlength="150" />
+        <button type="button" class="remove-step" data-remove-step="${i}" aria-label="حذف">×</button>
+      </div>`).join("");
+  }
+
+  function readStepsEditorLive() {
+    const taskId = $("#taskId").value;
+    const existingSteps = taskId
+      ? (state.tasks.find((t) => t.id === taskId)?.steps || [])
+      : [];
+    return $$("#stepsEditor input[data-step-idx]").map((inp, i) => ({
+      text: inp.value,
+      done: existingSteps[i] ? !!existingSteps[i].done : false,
+    }));
+  }
+
+  function readStepsEditor() {
+    return readStepsEditorLive()
+      .map((s) => ({ text: s.text.trim(), done: s.done }))
+      .filter((s) => s.text);
+  }
+
+  function renderPhasesEditor(phases = [{ text: "", done: false }]) {
+    const box = $("#planPhasesEditor");
+    if (!phases.length) phases = [{ text: "", done: false }];
+    box.innerHTML = phases.map((p, i) => `
+      <div class="step-edit">
+        <input type="text" data-phase-idx="${i}" value="${escapeHtml(p.text)}" placeholder="مرحلة ${i + 1}" maxlength="150" />
+        <button type="button" class="remove-step" data-remove-phase="${i}" aria-label="حذف">×</button>
+      </div>`).join("");
+  }
+
+  function readPhasesEditorLive() {
+    const planId = $("#planId").value;
+    const existingPhases = planId
+      ? (state.plans.find((p) => p.id === planId)?.phases || [])
+      : [];
+    return $$("#planPhasesEditor input[data-phase-idx]").map((inp, i) => ({
+      text: inp.value,
+      done: existingPhases[i] ? !!existingPhases[i].done : false,
+    }));
+  }
+
+  function readPhasesEditor() {
+    return readPhasesEditorLive()
+      .map((p) => ({ text: p.text.trim(), done: p.done }))
+      .filter((p) => p.text);
+  }
+
+  function openTaskModal(task) {
+    fillGoalSelect(task?.goalId || "");
+    $("#taskModalTitle").textContent = task ? "تعديل المهمة" : "مهمة جديدة";
+    $("#taskId").value = task?.id || "";
+    $("#taskTitle").value = task?.title || "";
+    $("#taskDesc").value = task?.desc || "";
+    $("#taskDate").value = task?.date || todayISO();
+    $("#taskTime").value = task?.time || "";
+    $$(`input[name="priority"]`).forEach((r) => {
+      r.checked = r.value === (task?.priority || "normal");
+    });
+    renderStepsEditor(task?.steps?.length ? task.steps : [{ text: "", done: false }, { text: "", done: false }]);
+    const hasRem = !!task?.reminderAt;
+    $("#taskReminder").checked = hasRem;
+    $("#reminderFields").hidden = !hasRem;
+    if (hasRem) {
+      const d = new Date(task.reminderAt);
+      $("#reminderDate").value = d.toISOString().slice(0, 10);
+      $("#reminderTime").value = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    } else {
+      $("#reminderDate").value = task?.date || todayISO();
+      $("#reminderTime").value = task?.time || "09:00";
+    }
+    openSheet($("#taskModal"));
+  }
+
+  function openGoalModal(goal) {
+    $("#goalModalTitle").textContent = goal ? "تعديل الهدف" : "هدف جديد";
+    $("#goalId").value = goal?.id || "";
+    $("#goalTitle").value = goal?.title || "";
+    $("#goalDesc").value = goal?.desc || "";
+    $("#goalDeadline").value = goal?.deadline || "";
+    openSheet($("#goalModal"));
+  }
+
+  function openPlanModal(plan) {
+    $("#planModalTitle").textContent = plan ? "تعديل الخطة" : "خطة جديدة";
+    $("#planId").value = plan?.id || "";
+    $("#planTitle").value = plan?.title || "";
+    $("#planDesc").value = plan?.desc || "";
+    $("#planStart").value = plan?.start || todayISO();
+    $("#planEnd").value = plan?.end || "";
+    renderPhasesEditor(plan?.phases?.length ? plan.phases : [{ text: "", done: false }, { text: "", done: false }, { text: "", done: false }]);
+    openSheet($("#planModal"));
+  }
+
+  function openReminderModal() {
+    $("#remTitle").value = "";
+    $("#remDate").value = todayISO();
+    $("#remTime").value = "09:00";
+    openSheet($("#reminderModal"));
+  }
+
+  /* ---------- CRUD ---------- */
+  function upsertTask(data) {
+    if (data.id) {
+      const idx = state.tasks.findIndex((t) => t.id === data.id);
+      if (idx >= 0) {
+        const prev = state.tasks[idx];
+        state.tasks[idx] = { ...prev, ...data };
+        if (prev.reminderAt !== data.reminderAt) {
+          state.firedReminderIds = state.firedReminderIds.filter((id) => id !== `task-${data.id}`);
+        }
+      }
+    } else {
+      state.tasks.unshift({
+        ...data,
+        id: uid(),
+        createdAt: Date.now(),
+        done: false,
+      });
+    }
+    save();
+    render();
+  }
+
+  function deleteTask(id) {
+    if (!confirm("حذف هذه المهمة؟")) return;
+    state.tasks = state.tasks.filter((t) => t.id !== id);
+    state.firedReminderIds = state.firedReminderIds.filter((x) => x !== `task-${id}`);
+    save();
+    render();
+    toast("تم حذف المهمة");
+  }
+
+  function toggleTask(id) {
+    const task = state.tasks.find((t) => t.id === id);
+    if (!task) return;
+    task.done = !task.done;
+    if (task.steps?.length) {
+      task.steps.forEach((s) => { s.done = task.done; });
+    }
+    save();
+    render();
+  }
+
+  function toggleStep(id, idx) {
+    const task = state.tasks.find((t) => t.id === id);
+    if (!task?.steps?.[idx]) return;
+    task.steps[idx].done = !task.steps[idx].done;
+    const pct = taskProgress(task);
+    task.done = pct === 100;
+    save();
+    render();
+  }
+
+  function upsertGoal(data) {
+    if (data.id) {
+      const idx = state.goals.findIndex((g) => g.id === data.id);
+      if (idx >= 0) state.goals[idx] = { ...state.goals[idx], ...data };
+    } else {
+      state.goals.unshift({ ...data, id: uid(), createdAt: Date.now() });
+    }
+    save();
+    render();
+  }
+
+  function deleteGoal(id) {
+    if (!confirm("حذف هذا الهدف؟ (المهام المرتبطة لن تُحذف)")) return;
+    state.goals = state.goals.filter((g) => g.id !== id);
+    state.tasks.forEach((t) => { if (t.goalId === id) t.goalId = ""; });
+    save();
+    render();
+    toast("تم حذف الهدف");
+  }
+
+  function upsertPlan(data) {
+    if (data.id) {
+      const idx = state.plans.findIndex((p) => p.id === data.id);
+      if (idx >= 0) state.plans[idx] = { ...state.plans[idx], ...data };
+    } else {
+      state.plans.unshift({ ...data, id: uid(), createdAt: Date.now() });
+    }
+    save();
+    render();
+  }
+
+  function deletePlan(id) {
+    if (!confirm("حذف هذه الخطة؟")) return;
+    state.plans = state.plans.filter((p) => p.id !== id);
+    save();
+    render();
+    toast("تم حذف الخطة");
+  }
+
+  function togglePhase(id, idx) {
+    const plan = state.plans.find((p) => p.id === id);
+    if (!plan?.phases?.[idx]) return;
+    plan.phases[idx].done = !plan.phases[idx].done;
+    save();
+    render();
+  }
+
+  function addStandaloneReminder(data) {
+    state.reminders.unshift({ ...data, id: uid(), createdAt: Date.now() });
+    save();
+    render();
+  }
+
+  function deleteReminder(id) {
+    if (!confirm("حذف هذا التذكير؟")) return;
+    state.reminders = state.reminders.filter((r) => r.id !== id);
+    state.firedReminderIds = state.firedReminderIds.filter((x) => x !== `rem-${id}`);
+    save();
+    render();
+    toast("تم حذف التذكير");
+  }
+
+  /* ---------- Notifications ---------- */
+  async function ensureNotifyPermission() {
+    if (!("Notification" in window)) {
+      toast("المتصفح لا يدعم الإشعارات");
+      return false;
+    }
+    if (Notification.permission === "granted") return true;
+    if (Notification.permission === "denied") {
+      toast("الإشعارات مرفوضة من إعدادات المتصفح");
+      return false;
+    }
+    const result = await Notification.requestPermission();
+    updateNotifyStatus();
+    if (result === "granted") {
+      toast("تم تفعيل الإشعارات");
+      showLocalNotification("مهامي جاهز", "ستظهر التذكيرات حتى على شاشة القفل عند دعم الجهاز");
+      return true;
+    }
+    toast("لم يتم منح إذن الإشعارات");
+    return false;
+  }
+
+  function updateNotifyStatus() {
+    const text = $("#notifyStatusText");
+    if (!("Notification" in window)) {
+      text.textContent = "هذا المتصفح لا يدعم واجهة الإشعارات.";
+      return;
+    }
+    const map = {
+      granted: "مفعّلة ✅ — التذكيرات ستظهر كإشعارات نظام (وقد تظهر على شاشة القفل حسب إعدادات هاتفك).",
+      denied: "مرفوضة ❌ — افتح إعدادات المتصفح/الموقع وفعّل الإشعارات يدوياً.",
+      default: "غير مفعّلة بعد. اضغط الزر أدناه للسماح بالإشعارات.",
+    };
+    text.textContent = map[Notification.permission] || map.default;
+  }
+
+  async function showLocalNotification(title, body, tag) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const opts = {
+      body,
+      icon: "icons/icon-192.png",
+      badge: "icons/icon-192.png",
+      tag: tag || `mahami-${Date.now()}`,
+      renotify: true,
+      requireInteraction: true,
+      vibrate: [200, 100, 200],
+      lang: "ar",
+      dir: "rtl",
+      data: { url: "./" },
+    };
+    try {
+      if (navigator.serviceWorker?.controller) {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification(title, opts);
+      } else {
+        new Notification(title, opts);
+      }
+    } catch {
+      try { new Notification(title, opts); } catch { /* ignore */ }
+    }
+  }
+
+  async function checkDueReminders() {
+    const now = Date.now();
+    const items = allUpcomingReminders().filter((r) => !r.past || (now - r.at) < 60000);
+    for (const r of items) {
+      if (r.at > now) continue;
+      if (state.firedReminderIds.includes(r.id)) continue;
+      // fire if due within last 2 minutes window or exactly due
+      if (now - r.at > 120000) {
+        state.firedReminderIds.push(r.id);
+        continue;
+      }
+      const prefix = r.priority === "urgent" ? "🔥 عاجل: " : "⏰ تذكير: ";
+      await showLocalNotification(prefix + r.title, "حان وقت التذكير من تطبيق مهامي", r.id);
+      state.firedReminderIds.push(r.id);
+      save();
+    }
+    // keep fired list bounded
+    if (state.firedReminderIds.length > 200) {
+      state.firedReminderIds = state.firedReminderIds.slice(-100);
+      save();
+    }
+  }
+
+  /* ---------- Events ---------- */
+  function bindEvents() {
+    $$(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
+
+    $$(".chip").forEach((c) => c.addEventListener("click", () => {
+      $$(".chip").forEach((x) => x.classList.remove("active"));
+      c.classList.add("active");
+      currentFilter = c.dataset.filter;
+      renderTasks();
+    }));
+
+    $("#sortTasks").addEventListener("change", renderTasks);
+
+    $("#fabAdd").addEventListener("click", openAddMenu);
+    $("#addMenuBackdrop").addEventListener("click", closeAllSheets);
+    $("#modalBackdrop").addEventListener("click", closeAllSheets);
+
+    $("#addMenu").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-add]");
+      if (!btn) return;
+      closeAllSheets();
+      const type = btn.dataset.add;
+      if (type === "task") openTaskModal();
+      if (type === "goal") openGoalModal();
+      if (type === "plan") openPlanModal();
+      if (type === "reminder") openReminderModal();
+    });
+
+    $("#btnCancelTask").addEventListener("click", closeAllSheets);
+    $("#btnCancelGoal").addEventListener("click", closeAllSheets);
+    $("#btnCancelPlan").addEventListener("click", closeAllSheets);
+    $("#btnCancelRem").addEventListener("click", closeAllSheets);
+
+    $("#taskReminder").addEventListener("change", (e) => {
+      $("#reminderFields").hidden = !e.target.checked;
+    });
+
+    $("#btnAddStep").addEventListener("click", () => {
+      const texts = readStepsEditorLive();
+      texts.push({ text: "", done: false });
+      renderStepsEditor(texts);
+    });
+
+    $("#stepsEditor").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-remove-step]");
+      if (!btn) return;
+      const idx = Number(btn.dataset.removeStep);
+      const texts = readStepsEditorLive();
+      texts.splice(idx, 1);
+      renderStepsEditor(texts.length ? texts : [{ text: "", done: false }]);
+    });
+
+    $("#btnAddPhase").addEventListener("click", () => {
+      const texts = readPhasesEditorLive();
+      texts.push({ text: "", done: false });
+      renderPhasesEditor(texts);
+    });
+
+    $("#planPhasesEditor").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-remove-phase]");
+      if (!btn) return;
+      const idx = Number(btn.dataset.removePhase);
+      const texts = readPhasesEditorLive();
+      texts.splice(idx, 1);
+      renderPhasesEditor(texts.length ? texts : [{ text: "", done: false }]);
+    });
+
+    $("#taskForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = $("#taskId").value || null;
+      const title = $("#taskTitle").value.trim();
+      if (!title) return;
+      let reminderAt = null;
+      if ($("#taskReminder").checked) {
+        const rd = $("#reminderDate").value;
+        const rt = $("#reminderTime").value || "09:00";
+        if (rd) reminderAt = new Date(`${rd}T${rt}:00`).getTime();
+        const ok = await ensureNotifyPermission();
+        if (!ok) toast("تم الحفظ، لكن الإشعارات غير مفعّلة");
+      }
+      const steps = readStepsEditor();
+      const pct = steps.length
+        ? Math.round((steps.filter((s) => s.done).length / steps.length) * 100)
+        : 0;
+      upsertTask({
+        id,
+        title,
+        desc: $("#taskDesc").value.trim(),
+        date: $("#taskDate").value,
+        time: $("#taskTime").value,
+        priority: ($("input[name='priority']:checked") || {}).value || "normal",
+        goalId: $("#taskGoal").value,
+        steps,
+        reminderAt,
+        done: pct === 100,
+      });
+      closeAllSheets();
+      toast(id ? "تم تحديث المهمة" : "تمت إضافة المهمة");
+      setTab("tasks");
+    });
+
+    $("#goalForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const id = $("#goalId").value || null;
+      upsertGoal({
+        id,
+        title: $("#goalTitle").value.trim(),
+        desc: $("#goalDesc").value.trim(),
+        deadline: $("#goalDeadline").value,
+      });
+      closeAllSheets();
+      toast(id ? "تم تحديث الهدف" : "تمت إضافة الهدف");
+      setTab("goals");
+    });
+
+    $("#planForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const id = $("#planId").value || null;
+      upsertPlan({
+        id,
+        title: $("#planTitle").value.trim(),
+        desc: $("#planDesc").value.trim(),
+        start: $("#planStart").value,
+        end: $("#planEnd").value,
+        phases: readPhasesEditor(),
+      });
+      closeAllSheets();
+      toast(id ? "تم تحديث الخطة" : "تمت إضافة الخطة");
+      setTab("plans");
+    });
+
+    $("#reminderForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const title = $("#remTitle").value.trim();
+      const date = $("#remDate").value;
+      const time = $("#remTime").value;
+      const at = new Date(`${date}T${time}:00`).getTime();
+      await ensureNotifyPermission();
+      addStandaloneReminder({ title, at });
+      closeAllSheets();
+      toast("تم حفظ التذكير");
+      setTab("reminders");
+    });
+
+    document.addEventListener("click", (e) => {
+      const el = e.target.closest("[data-action]");
+      if (!el) return;
+      const { action, id } = el.dataset;
+      const idx = el.dataset.idx !== undefined ? Number(el.dataset.idx) : null;
+
+      if (action === "toggle-task") toggleTask(id);
+      if (action === "toggle-step") toggleStep(id, idx);
+      if (action === "edit-task") openTaskModal(state.tasks.find((t) => t.id === id));
+      if (action === "delete-task") deleteTask(id);
+      if (action === "edit-goal") openGoalModal(state.goals.find((g) => g.id === id));
+      if (action === "delete-goal") deleteGoal(id);
+      if (action === "edit-plan") openPlanModal(state.plans.find((p) => p.id === id));
+      if (action === "delete-plan") deletePlan(id);
+      if (action === "toggle-phase") togglePhase(id, idx);
+      if (action === "delete-reminder") deleteReminder(id);
+    });
+
+    $("#btnNotify").addEventListener("click", () => ensureNotifyPermission());
+    $("#btnEnableNotify").addEventListener("click", () => ensureNotifyPermission());
+
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      $("#btnInstall").hidden = false;
+    });
+
+    $("#btnInstall").addEventListener("click", async () => {
+      if (!deferredInstallPrompt) {
+        toast("للتثبيت: من قائمة المتصفح اختر «إضافة إلى الشاشة الرئيسية»");
+        return;
+      }
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      $("#btnInstall").hidden = true;
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) checkDueReminders();
+    });
+  }
+
+  async function registerSW() {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      await navigator.serviceWorker.register("./sw.js");
+    } catch (err) {
+      console.warn("SW failed", err);
+    }
+  }
+
+  function seedIfEmpty() {
+    if (state.tasks.length || state.goals.length || state.plans.length) return;
+    const goalId = uid();
+    state.goals.push({
+      id: goalId,
+      title: "تنظيم يومي أفضل",
+      desc: "هدف تجريبي للبدء",
+      deadline: todayISO(),
+      createdAt: Date.now(),
+    });
+    state.tasks.push({
+      id: uid(),
+      title: "مراجعة مهام اليوم",
+      desc: "مهمّة تجريبية متعددة الخطوات",
+      date: todayISO(),
+      time: "10:00",
+      priority: "urgent",
+      goalId,
+      steps: [
+        { text: "فتح قائمة المهام", done: true },
+        { text: "تحديد الأولويات", done: false },
+        { text: "بدء أول مهمة عاجلة", done: false },
+      ],
+      reminderAt: null,
+      done: false,
+      createdAt: Date.now(),
+    });
+    state.plans.push({
+      id: uid(),
+      title: "خطة هذا الأسبوع",
+      desc: "نموذج لخطة متعددة المراحل",
+      start: todayISO(),
+      end: "",
+      phases: [
+        { text: "تحديد الأهداف", done: true },
+        { text: "توزيع المهام", done: false },
+        { text: "مراجعة التقدم", done: false },
+      ],
+      createdAt: Date.now(),
+    });
+    save();
+  }
+
+  function init() {
+    seedIfEmpty();
+    bindEvents();
+    render();
+    registerSW();
+    checkDueReminders();
+    setInterval(checkDueReminders, CHECK_INTERVAL_MS);
+
+    // keep awake check when page visible
+    if ("permissions" in navigator && navigator.permissions.query) {
+      navigator.permissions.query({ name: "notifications" }).then((p) => {
+        p.onchange = updateNotifyStatus;
+      }).catch(() => {});
+    }
+  }
+
+  init();
+})();

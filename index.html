@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="مهامي" />
+  <meta name="description" content="تطبيق إدارة المهام اليومية والأهداف والخطط مع تذكيرات وإشعارات" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <title>مهامي — إدارة المهام والأهداف</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <div class="header-top">
+        <div>
+          <h1>مهامي</h1>
+          <p class="subtitle" id="todayLabel"></p>
+        </div>
+        <div class="header-actions">
+          <button type="button" class="icon-btn" id="btnNotify" title="تفعيل الإشعارات" aria-label="تفعيل الإشعارات">🔔</button>
+          <button type="button" class="icon-btn" id="btnInstall" title="تثبيت التطبيق" aria-label="تثبيت التطبيق" hidden>⬇️</button>
+        </div>
+      </div>
+      <div class="stats-bar" id="statsBar">
+        <div class="stat"><span id="statDone">0</span><small>مكتمل</small></div>
+        <div class="stat"><span id="statPending">0</span><small>متبقي</small></div>
+        <div class="stat"><span id="statUrgent">0</span><small>عاجل</small></div>
+        <div class="stat progress-stat">
+          <div class="ring" id="dayRing"><span id="dayPercent">0%</span></div>
+          <small>اليوم</small>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab active" data-tab="tasks" role="tab" aria-selected="true">المهام</button>
+      <button type="button" class="tab" data-tab="goals" role="tab" aria-selected="false">الأهداف</button>
+      <button type="button" class="tab" data-tab="plans" role="tab" aria-selected="false">الخطط</button>
+      <button type="button" class="tab" data-tab="reminders" role="tab" aria-selected="false">التذكيرات</button>
+    </nav>
+
+    <main class="content">
+      <!-- المهام -->
+      <section id="panel-tasks" class="panel active" role="tabpanel">
+        <div class="filters">
+          <button type="button" class="chip active" data-filter="all">الكل</button>
+          <button type="button" class="chip" data-filter="today">اليوم</button>
+          <button type="button" class="chip" data-filter="urgent">عاجل</button>
+          <button type="button" class="chip" data-filter="pending">غير مكتمل</button>
+          <button type="button" class="chip" data-filter="done">مكتمل</button>
+        </div>
+        <div class="sort-row">
+          <label for="sortTasks">ترتيب:</label>
+          <select id="sortTasks">
+            <option value="priority">الأولوية</option>
+            <option value="date">التاريخ</option>
+            <option value="progress">نسبة الإنجاز</option>
+            <option value="created">الأحدث</option>
+          </select>
+        </div>
+        <div id="tasksList" class="cards-list"></div>
+        <div class="empty" id="tasksEmpty" hidden>
+          <div class="empty-icon">✅</div>
+          <p>لا توجد مهام بعد</p>
+          <p class="muted">اضغط + لإضافة مهمة جديدة</p>
+        </div>
+      </section>
+
+      <!-- الأهداف -->
+      <section id="panel-goals" class="panel" role="tabpanel" hidden>
+        <div id="goalsList" class="cards-list"></div>
+        <div class="empty" id="goalsEmpty" hidden>
+          <div class="empty-icon">🎯</div>
+          <p>لا توجد أهداف بعد</p>
+          <p class="muted">أضف هدفاً وربط المهام به</p>
+        </div>
+      </section>
+
+      <!-- الخطط -->
+      <section id="panel-plans" class="panel" role="tabpanel" hidden>
+        <div id="plansList" class="cards-list"></div>
+        <div class="empty" id="plansEmpty" hidden>
+          <div class="empty-icon">🗺️</div>
+          <p>لا توجد خطط بعد</p>
+          <p class="muted">ضع خطة متعددة المراحل لتحقيق أهدافك</p>
+        </div>
+      </section>
+
+      <!-- التذكيرات -->
+      <section id="panel-reminders" class="panel" role="tabpanel" hidden>
+        <div class="info-card" id="notifyStatus">
+          <strong>حالة الإشعارات</strong>
+          <p id="notifyStatusText">جاري التحقق...</p>
+          <button type="button" class="btn btn-primary btn-sm" id="btnEnableNotify">تفعيل إشعارات شاشة القفل</button>
+        </div>
+        <div id="remindersList" class="cards-list"></div>
+        <div class="empty" id="remindersEmpty" hidden>
+          <div class="empty-icon">⏰</div>
+          <p>لا توجد تذكيرات قادمة</p>
+        </div>
+      </section>
+    </main>
+
+    <button type="button" class="fab" id="fabAdd" aria-label="إضافة">+</button>
+
+    <!-- قائمة الإضافة السريعة -->
+    <div class="sheet-backdrop" id="addMenuBackdrop" hidden></div>
+    <div class="sheet add-menu" id="addMenu" hidden>
+      <button type="button" data-add="task">📌 مهمة جديدة</button>
+      <button type="button" data-add="goal">🎯 هدف جديد</button>
+      <button type="button" data-add="plan">🗺️ خطة جديدة</button>
+      <button type="button" data-add="reminder">⏰ تذكير فقط</button>
+    </div>
+
+    <!-- نموذج المهمة -->
+    <div class="sheet-backdrop" id="modalBackdrop" hidden></div>
+    <div class="sheet modal" id="taskModal" hidden>
+      <div class="sheet-handle"></div>
+      <h2 id="taskModalTitle">مهمة جديدة</h2>
+      <form id="taskForm">
+        <input type="hidden" id="taskId" />
+        <label>عنوان المهمة
+          <input type="text" id="taskTitle" required maxlength="120" placeholder="مثال: إنهاء تقرير العمل" />
+        </label>
+        <label>الوصف
+          <textarea id="taskDesc" rows="2" maxlength="400" placeholder="تفاصيل اختيارية"></textarea>
+        </label>
+        <div class="row-2">
+          <label>التاريخ
+            <input type="date" id="taskDate" required />
+          </label>
+          <label>الوقت
+            <input type="time" id="taskTime" />
+          </label>
+        </div>
+        <label>الأولوية
+          <div class="priority-toggle">
+            <label class="prio"><input type="radio" name="priority" value="normal" checked /> عادية</label>
+            <label class="prio urgent"><input type="radio" name="priority" value="urgent" /> عاجلة 🔥</label>
+          </div>
+        </label>
+        <label>الهدف المرتبط
+          <select id="taskGoal">
+            <option value="">— بدون —</option>
+          </select>
+        </label>
+        <fieldset class="steps-box">
+          <legend>خطوات المهمة</legend>
+          <div id="stepsEditor"></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="btnAddStep">+ إضافة خطوة</button>
+        </fieldset>
+        <label class="check-row">
+          <input type="checkbox" id="taskReminder" />
+          تفعيل تذكير / إشعار
+        </label>
+        <div class="row-2" id="reminderFields" hidden>
+          <label>تاريخ التذكير
+            <input type="date" id="reminderDate" />
+          </label>
+          <label>وقت التذكير
+            <input type="time" id="reminderTime" />
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="btnCancelTask">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- نموذج الهدف -->
+    <div class="sheet modal" id="goalModal" hidden>
+      <div class="sheet-handle"></div>
+      <h2 id="goalModalTitle">هدف جديد</h2>
+      <form id="goalForm">
+        <input type="hidden" id="goalId" />
+        <label>عنوان الهدف
+          <input type="text" id="goalTitle" required maxlength="120" placeholder="مثال: تحسين اللياقة" />
+        </label>
+        <label>الوصف
+          <textarea id="goalDesc" rows="2" maxlength="400"></textarea>
+        </label>
+        <label>الموعد المستهدف
+          <input type="date" id="goalDeadline" />
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="btnCancelGoal">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- نموذج الخطة -->
+    <div class="sheet modal" id="planModal" hidden>
+      <div class="sheet-handle"></div>
+      <h2 id="planModalTitle">خطة جديدة</h2>
+      <form id="planForm">
+        <input type="hidden" id="planId" />
+        <label>عنوان الخطة
+          <input type="text" id="planTitle" required maxlength="120" placeholder="مثال: خطة أسبوع العمل" />
+        </label>
+        <label>الوصف
+          <textarea id="planDesc" rows="2" maxlength="400"></textarea>
+        </label>
+        <div class="row-2">
+          <label>من
+            <input type="date" id="planStart" />
+          </label>
+          <label>إلى
+            <input type="date" id="planEnd" />
+          </label>
+        </div>
+        <fieldset class="steps-box">
+          <legend>مراحل الخطة</legend>
+          <div id="planPhasesEditor"></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="btnAddPhase">+ إضافة مرحلة</button>
+        </fieldset>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="btnCancelPlan">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- نموذج تذكير مستقل -->
+    <div class="sheet modal" id="reminderModal" hidden>
+      <div class="sheet-handle"></div>
+      <h2>تذكير جديد</h2>
+      <form id="reminderForm">
+        <label>النص
+          <input type="text" id="remTitle" required maxlength="120" placeholder="مثال: اشرب الماء" />
+        </label>
+        <div class="row-2">
+          <label>التاريخ
+            <input type="date" id="remDate" required />
+          </label>
+          <label>الوقت
+            <input type="time" id="remTime" required />
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="btnCancelRem">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
