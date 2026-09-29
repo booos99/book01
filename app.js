@@ -1194,12 +1194,41 @@
     save();
   }
 
+  function lockMobileViewport() {
+    const setAppHeight = () => {
+      const h = window.visualViewport?.height || window.innerHeight;
+      document.documentElement.style.setProperty("--app-height", `${Math.round(h)}px`);
+    };
+    setAppHeight();
+    window.addEventListener("resize", setAppHeight, { passive: true });
+    window.addEventListener("orientationchange", () => setTimeout(setAppHeight, 120));
+    window.visualViewport?.addEventListener("resize", setAppHeight, { passive: true });
+    window.visualViewport?.addEventListener("scroll", setAppHeight, { passive: true });
+
+    // منع الزوم بإصبعين على iOS
+    document.addEventListener("gesturestart", (e) => e.preventDefault(), { passive: false });
+    document.addEventListener("gesturechange", (e) => e.preventDefault(), { passive: false });
+    document.addEventListener("gestureend", (e) => e.preventDefault(), { passive: false });
+
+    let lastTouchEnd = 0;
+    document.addEventListener("touchend", (e) => {
+      const now = Date.now();
+      if (now - lastTouchEnd <= 300) e.preventDefault();
+      lastTouchEnd = now;
+    }, { passive: false });
+
+    document.addEventListener("touchmove", (e) => {
+      if (e.touches && e.touches.length > 1) e.preventDefault();
+    }, { passive: false });
+  }
+
   function init() {
     try {
       applyTheme(localStorage.getItem(THEME_KEY) || getTheme());
     } catch {
       applyTheme(getTheme());
     }
+    lockMobileViewport();
     seedIfEmpty();
     bindEvents();
     render();
