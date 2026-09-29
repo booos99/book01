@@ -852,6 +852,36 @@ form textarea {
   font-size: 0.82rem !important;
 }
 
+.notify-checklist {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notify-checklist li {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.notify-checklist li.ok { border-color: rgba(16, 185, 129, 0.45); }
+.notify-checklist li.warn { border-color: rgba(245, 158, 11, 0.45); }
+.notify-checklist li.bad { border-color: rgba(244, 63, 94, 0.45); }
+
+.notify-help {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.85rem;
+}
+
 .btn-danger-soft {
   background: var(--urgent-bg);
   color: var(--urgent);

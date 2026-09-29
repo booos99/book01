@@ -259,6 +259,7 @@
       const payload = JSON.stringify(state);
       localStorage.setItem(STORAGE_KEY, payload);
       localStorage.setItem(BACKUP_KEY, payload);
+      syncScheduleToServiceWorker();
     } catch (err) {
       console.warn("save failed", err);
       toast("تعذر حفظ البيانات — مساحة التخزين ممتلئة ربما");
@@ -927,21 +928,136 @@
   }
 
   /* ---------- Notifications ---------- */
+  let scheduledTimers = [];
+  let swRegistration = null;
+
+  function absoluteAsset(path) {
+    try { return new URL(path, window.location.href).href; }
+    catch { return path; }
+  }
+
+  function isStandaloneApp() {
+    return window.matchMedia("(display-mode: standalone)").matches
+      || window.navigator.standalone === true;
+  }
+
+  function buildUpcomingScheduleEvents() {
+    const now = Date.now();
+    const horizon = now + 7 * 24 * 60 * 60 * 1000;
+    const events = [];
+
+    state.tasks.forEach((t) => {
+      if (!t.reminderAt || t.done) return;
+      if (t.reminderAt < now - 10 * 60 * 1000) return;
+      if (t.reminderAt > horizon) return;
+      events.push({
+        id: `task-${t.id}`,
+        title: t.title,
+        body: "تذكير مهمة من مهامي",
+        at: t.reminderAt,
+        priority: t.priority,
+      });
+    });
+
+    state.reminders.forEach((r) => {
+      if (r.type === "daily") {
+        if (!r.startDate || !r.endDate || !r.time) return;
+        let cursor = r.startDate < todayISO() ? todayISO() : r.startDate;
+        let guard = 0;
+        while (cursor <= r.endDate && guard < 400) {
+          const at = reminderAtForDay(r, cursor);
+          if (at && at >= now - 10 * 60 * 1000 && at <= horizon) {
+            events.push({
+              id: dailyReminderFireId(r.id, cursor),
+              title: r.title,
+              body: `تذكير يومي (${r.time})`,
+              at,
+              priority: "normal",
+            });
+          }
+          cursor = addDaysISO(cursor, 1);
+          guard += 1;
+        }
+        return;
+      }
+      if (typeof r.at === "number" && r.at >= now - 10 * 60 * 1000 && r.at <= horizon) {
+        events.push({
+          id: `rem-${r.id}`,
+          title: r.title,
+          body: "تذكير من مهامي",
+          at: r.at,
+          priority: "normal",
+        });
+      }
+    });
+
+    return events.sort((a, b) => a.at - b.at);
+  }
+
+  async function syncScheduleToServiceWorker() {
+    const events = buildUpcomingScheduleEvents();
+    const fired = safeArr(state.firedReminderIds);
+    try {
+      const reg = swRegistration || (await navigator.serviceWorker?.ready);
+      if (reg?.active) {
+        reg.active.postMessage({ type: "SYNC_SCHEDULE", events, fired });
+      }
+    } catch (err) {
+      console.warn("schedule sync failed", err);
+    }
+    scheduleLocalTimers(events);
+    return events;
+  }
+
+  function clearLocalTimers() {
+    scheduledTimers.forEach((id) => clearTimeout(id));
+    scheduledTimers = [];
+  }
+
+  function scheduleLocalTimers(events) {
+    clearLocalTimers();
+    const now = Date.now();
+    events
+      .filter((e) => e.at > now && e.at - now < 24 * 60 * 60 * 1000)
+      .slice(0, 20)
+      .forEach((event) => {
+        const delay = Math.max(500, event.at - Date.now());
+        const timerId = setTimeout(async () => {
+          if (state.firedReminderIds.includes(event.id)) return;
+          const prefix = event.priority === "urgent" ? "🔥 عاجل: " : "⏰ تذكير: ";
+          await showLocalNotification(prefix + event.title, event.body || "حان وقت التذكير", event.id);
+          if (!state.firedReminderIds.includes(event.id)) {
+            state.firedReminderIds.push(event.id);
+            saveNow();
+            syncScheduleToServiceWorker();
+          }
+        }, delay);
+        scheduledTimers.push(timerId);
+      });
+  }
+
   async function ensureNotifyPermission() {
     if (!("Notification" in window)) {
       toast("المتصفح لا يدعم الإشعارات");
+      updateNotifyStatus();
       return false;
     }
-    if (Notification.permission === "granted") return true;
+    if (Notification.permission === "granted") {
+      await syncScheduleToServiceWorker();
+      updateNotifyStatus();
+      return true;
+    }
     if (Notification.permission === "denied") {
-      toast("الإشعارات مرفوضة من إعدادات المتصفح");
+      toast("الإشعارات مرفوضة — فعّلها من إعدادات الهاتف/المتصفح");
+      updateNotifyStatus();
       return false;
     }
     const result = await Notification.requestPermission();
     updateNotifyStatus();
     if (result === "granted") {
       toast("تم تفعيل الإشعارات");
-      showLocalNotification("مهامي جاهز", "ستظهر التذكيرات حتى على شاشة القفل عند دعم الجهاز");
+      await syncScheduleToServiceWorker();
+      await showLocalNotification("مهامي جاهز ✅", "الإشعارات تعمل. فعّل الظهور على شاشة القفل من إعدادات الهاتف.");
       return true;
     }
     toast("لم يتم منح إذن الإشعارات");
@@ -950,17 +1066,37 @@
 
   function updateNotifyStatus() {
     const text = $("#notifyStatusText");
+    const list = $("#notifyChecklist");
     if (!text) return;
-    if (!("Notification" in window)) {
+
+    const permission = ("Notification" in window) ? Notification.permission : "unsupported";
+    const swOk = !!(navigator.serviceWorker && (swRegistration || navigator.serviceWorker.controller));
+    const installed = isStandaloneApp();
+    const secure = window.isSecureContext;
+
+    if (permission === "unsupported") {
       text.textContent = "هذا المتصفح لا يدعم واجهة الإشعارات.";
-      return;
+    } else if (permission === "granted") {
+      text.textContent = "الإشعارات مفعّلة ✅. استخدم زر الاختبار للتأكد أنها تظهر في مركز التنبيهات/شاشة القفل.";
+    } else if (permission === "denied") {
+      text.textContent = "الإشعارات مرفوضة ❌. افتح إعدادات الموقع/التطبيق وفعّلها يدوياً.";
+    } else {
+      text.textContent = "الإشعارات غير مفعّلة بعد. اضغط «تفعيل الإشعارات» واسمح بها.";
     }
-    const map = {
-      granted: "مفعّلة ✅ — التذكيرات ستظهر كإشعارات نظام (وقد تظهر على شاشة القفل حسب إعدادات هاتفك).",
-      denied: "مرفوضة ❌ — افتح إعدادات المتصفح/الموقع وفعّل الإشعارات يدوياً.",
-      default: "غير مفعّلة بعد. اضغط الزر أدناه للسماح بالإشعارات.",
-    };
-    text.textContent = map[Notification.permission] || map.default;
+
+    if (list) {
+      const rows = [
+        { ok: secure, warn: false, label: secure ? "اتصال آمن (HTTPS) جاهز" : "يحتاج HTTPS أو localhost" },
+        { ok: permission === "granted", warn: permission === "default", label: permission === "granted" ? "إذن الإشعارات ممنوح" : permission === "denied" ? "إذن الإشعارات مرفوض" : "إذن الإشعارات لم يُطلب بعد" },
+        { ok: swOk, warn: false, label: swOk ? "Service Worker يعمل" : "Service Worker غير مفعّل بعد" },
+        { ok: installed, warn: !installed, label: installed ? "التطبيق مثبت على الشاشة الرئيسية" : "يُفضّل تثبيته على الشاشة الرئيسية (مهم للآيفون)" },
+      ];
+      list.innerHTML = rows.map((r) => {
+        const cls = r.ok ? "ok" : r.warn ? "warn" : "bad";
+        const mark = r.ok ? "✅" : r.warn ? "⚠️" : "❌";
+        return `<li class="${cls}">${mark} ${r.label}</li>`;
+      }).join("");
+    }
   }
 
   function updateDataStatsHint() {
@@ -1102,29 +1238,54 @@
   }
 
   async function showLocalNotification(title, body, tag) {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return false;
     const opts = {
-      body,
-      icon: "icons/icon-192.png",
-      badge: "icons/icon-192.png",
+      body: body || "حان وقت التذكير من تطبيق مهامي",
+      icon: absoluteAsset("./icons/icon-192.png"),
+      badge: absoluteAsset("./icons/icon-192.png"),
       tag: tag || `mahami-${Date.now()}`,
       renotify: true,
       requireInteraction: true,
-      vibrate: [200, 100, 200],
+      silent: false,
+      vibrate: [220, 100, 220, 100, 320],
       lang: "ar",
       dir: "rtl",
-      data: { url: "./" },
+      timestamp: Date.now(),
+      data: { url: absoluteAsset("./index.html") },
     };
     try {
-      if (navigator.serviceWorker?.controller) {
-        const reg = await navigator.serviceWorker.ready;
+      const reg = swRegistration || (await navigator.serviceWorker?.ready);
+      if (reg) {
         await reg.showNotification(title, opts);
-      } else {
-        new Notification(title, opts);
+        return true;
       }
-    } catch {
-      try { new Notification(title, opts); } catch { /* ignore */ }
+    } catch (err) {
+      console.warn("SW notify failed", err);
     }
+    try {
+      new Notification(title, opts);
+      return true;
+    } catch (err) {
+      console.warn("Notification failed", err);
+      return false;
+    }
+  }
+
+  async function sendTestNotification(delayMs = 0) {
+    const ok = await ensureNotifyPermission();
+    if (!ok) return;
+    if (delayMs > 0) {
+      toast(`سيتم إرسال إشعار تجريبي بعد ${Math.round(delayMs / 1000)} ثوانٍ`);
+      setTimeout(() => {
+        showLocalNotification("اختبار مؤجّل ✅", "إذا ظهر هذا في التنبيهات/شاشة القفل فالإعداد صحيح");
+      }, delayMs);
+      return;
+    }
+    const sent = await showLocalNotification(
+      "اختبار إشعار مهامي ✅",
+      "إذا رأيت هذا في مركز الإشعارات أو شاشة القفل فالإعدادات تعمل"
+    );
+    toast(sent ? "تم إرسال إشعار تجريبي" : "تعذر إرسال الإشعار");
   }
 
   async function checkDueReminders() {
@@ -1133,8 +1294,7 @@
     for (const r of items) {
       if (r.at > now) continue;
       if (state.firedReminderIds.includes(r.id)) continue;
-      // fire if due within last 2 minutes window or exactly due
-      if (now - r.at > 120000) {
+      if (now - r.at > 10 * 60 * 1000) {
         state.firedReminderIds.push(r.id);
         continue;
       }
@@ -1143,11 +1303,26 @@
       state.firedReminderIds.push(r.id);
       save();
     }
-    // keep fired list bounded
-    if (state.firedReminderIds.length > 200) {
-      state.firedReminderIds = state.firedReminderIds.slice(-100);
+    if (state.firedReminderIds.length > 300) {
+      state.firedReminderIds = state.firedReminderIds.slice(-150);
       save();
     }
+    await syncScheduleToServiceWorker();
+    try {
+      const reg = swRegistration || (await navigator.serviceWorker?.ready);
+      reg?.active?.postMessage({ type: "CHECK_DUE" });
+    } catch { /* ignore */ }
+  }
+
+  async function registerPeriodicSync() {
+    try {
+      const reg = swRegistration || (await navigator.serviceWorker?.ready);
+      if (!reg?.periodicSync) return;
+      const tags = await reg.periodicSync.getTags();
+      if (!tags.includes("mahami-reminders")) {
+        await reg.periodicSync.register("mahami-reminders", { minInterval: 15 * 60 * 1000 });
+      }
+    } catch { /* unsupported */ }
   }
 
   /* ---------- Events ---------- */
@@ -1360,6 +1535,8 @@
 
     $("#btnNotify")?.addEventListener("click", () => ensureNotifyPermission());
     $("#btnEnableNotify")?.addEventListener("click", () => ensureNotifyPermission());
+    $("#btnTestNotify")?.addEventListener("click", () => sendTestNotification(0));
+    $("#btnTestNotifySoon")?.addEventListener("click", () => sendTestNotification(10000));
     $("#btnTheme")?.addEventListener("click", toggleTheme);
 
     $("#btnExportData")?.addEventListener("click", exportData);
@@ -1408,7 +1585,13 @@
   async function registerSW() {
     if (!("serviceWorker" in navigator)) return;
     try {
-      await navigator.serviceWorker.register("./sw.js");
+      swRegistration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+      await navigator.serviceWorker.ready;
+      // تحديث فوري للنسخة الجديدة من SW
+      swRegistration.update?.();
+      await syncScheduleToServiceWorker();
+      await registerPeriodicSync();
+      updateNotifyStatus();
     } catch (err) {
       console.warn("SW failed", err);
     }
