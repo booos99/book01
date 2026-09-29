@@ -468,8 +468,8 @@
               </div>
               ${stepsHtml}
               <div class="card-actions">
-                <button type="button" class="btn-mini" data-action="edit-task" data-id="${task.id}">تعديل</button>
-                <button type="button" class="btn-mini danger" data-action="delete-task" data-id="${task.id}">حذف</button>
+                <button type="button" class="btn-mini" data-action="edit-task" data-id="${task.id}">✏️ تعديل</button>
+                <button type="button" class="btn-mini danger" data-action="delete-task" data-id="${task.id}">🗑️ حذف</button>
               </div>
             </div>
           </div>
@@ -500,8 +500,8 @@
             </div>
           </div>
           <div class="card-actions">
-            <button type="button" class="btn-mini" data-action="edit-goal" data-id="${goal.id}">تعديل</button>
-            <button type="button" class="btn-mini danger" data-action="delete-goal" data-id="${goal.id}">حذف</button>
+            <button type="button" class="btn-mini" data-action="edit-goal" data-id="${goal.id}">✏️ تعديل</button>
+            <button type="button" class="btn-mini danger" data-action="delete-goal" data-id="${goal.id}">🗑️ حذف</button>
           </div>
         </article>`;
     }).join("");
@@ -534,8 +534,8 @@
           </div>
           <div class="plan-phases">${phases}</div>
           <div class="card-actions">
-            <button type="button" class="btn-mini" data-action="edit-plan" data-id="${plan.id}">تعديل</button>
-            <button type="button" class="btn-mini danger" data-action="delete-plan" data-id="${plan.id}">حذف</button>
+            <button type="button" class="btn-mini" data-action="edit-plan" data-id="${plan.id}">✏️ تعديل</button>
+            <button type="button" class="btn-mini danger" data-action="delete-plan" data-id="${plan.id}">🗑️ حذف</button>
           </div>
         </article>`;
     }).join("");
@@ -612,7 +612,8 @@
           ${r.kind === "daily" ? `<p class="muted" style="margin:8px 0 0;font-size:0.82rem">التنبيه القادم: ${when}</p>` : ""}
           ${r.source === "reminder" ? `
             <div class="card-actions">
-              <button type="button" class="btn-mini danger" data-action="delete-reminder" data-id="${r.sourceId}">حذف</button>
+              <button type="button" class="btn-mini" data-action="edit-reminder" data-id="${r.sourceId}">✏️ تعديل</button>
+              <button type="button" class="btn-mini danger" data-action="delete-reminder" data-id="${r.sourceId}">🗑️ حذف</button>
             </div>` : ""}
         </article>`;
     }).join("");
@@ -753,14 +754,34 @@
     $("#remDailyTime").required = !once;
   }
 
-  function openReminderModal() {
-    $("#remTitle").value = "";
-    $$("input[name='remType']").forEach((r) => { r.checked = r.value === "once"; });
-    $("#remDate").value = todayISO();
-    $("#remTime").value = "09:00";
-    $("#remStartDate").value = todayISO();
-    $("#remEndDate").value = addDaysISO(todayISO(), 7);
-    $("#remDailyTime").value = "09:00";
+  function openReminderModal(reminder) {
+    $("#reminderModalTitle").textContent = reminder ? "تعديل التذكير" : "تذكير جديد";
+    $("#remId").value = reminder?.id || "";
+    $("#remTitle").value = reminder?.title || "";
+
+    const type = reminder?.type === "daily" ? "daily" : "once";
+    $$("input[name='remType']").forEach((r) => { r.checked = r.value === type; });
+
+    if (type === "daily") {
+      $("#remStartDate").value = reminder.startDate || todayISO();
+      $("#remEndDate").value = reminder.endDate || addDaysISO(todayISO(), 7);
+      $("#remDailyTime").value = reminder.time || "09:00";
+      $("#remDate").value = todayISO();
+      $("#remTime").value = "09:00";
+    } else {
+      if (reminder?.at) {
+        const d = new Date(reminder.at);
+        $("#remDate").value = d.toISOString().slice(0, 10);
+        $("#remTime").value = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      } else {
+        $("#remDate").value = todayISO();
+        $("#remTime").value = "09:00";
+      }
+      $("#remStartDate").value = todayISO();
+      $("#remEndDate").value = addDaysISO(todayISO(), 7);
+      $("#remDailyTime").value = "09:00";
+    }
+
     syncReminderTypeFields();
     openSheet($("#reminderModal"));
   }
@@ -865,10 +886,33 @@
     render();
   }
 
-  function addStandaloneReminder(data) {
-    state.reminders.unshift({ ...data, id: uid(), createdAt: Date.now() });
+  function upsertStandaloneReminder(data) {
+    if (data.id) {
+      const idx = state.reminders.findIndex((r) => r.id === data.id);
+      if (idx >= 0) {
+        const prev = state.reminders[idx];
+        state.reminders[idx] = {
+          ...prev,
+          ...data,
+          id: prev.id,
+          createdAt: prev.createdAt || Date.now(),
+        };
+        // إعادة تفعيل الإشعارات عند تغيير الموعد/النوع
+        state.firedReminderIds = state.firedReminderIds.filter(
+          (x) => x !== `rem-${data.id}` && !x.startsWith(`rem-${data.id}-`)
+        );
+      } else {
+        state.reminders.unshift({ ...data, id: data.id, createdAt: Date.now() });
+      }
+    } else {
+      state.reminders.unshift({ ...data, id: uid(), createdAt: Date.now() });
+    }
     save();
     render();
+  }
+
+  function addStandaloneReminder(data) {
+    upsertStandaloneReminder(data);
   }
 
   function deleteReminder(id) {

@@ -283,8 +283,9 @@
     <!-- نموذج تذكير مستقل -->
     <div class="sheet modal" id="reminderModal" hidden>
       <div class="sheet-handle"></div>
-      <h2>تذكير جديد</h2>
+      <h2 id="reminderModalTitle">تذكير جديد</h2>
       <form id="reminderForm">
+        <input type="hidden" id="remId" />
         <label>النص
           <input type="text" id="remTitle" required maxlength="120" placeholder="مثال: اشرب الماء" />
         </label>

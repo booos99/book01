@@ -578,21 +578,23 @@ html[data-theme="dark"] .badge.goal { color: #fbbf24; }
 
 .card-actions {
   display: flex;
-  gap: 6px;
-  margin-top: 10px;
-  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: stretch;
 }
 
 .btn-mini {
   border: 0;
   background: var(--surface-2);
   color: var(--primary-dark);
-  border-radius: 11px;
-  padding: 7px 11px;
-  font-size: 0.78rem;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
   font-weight: 800;
   cursor: pointer;
   border: 1px solid var(--border);
+  flex: 1;
+  min-height: 42px;
 }
 
 .btn-mini.danger {
