@@ -249,6 +249,7 @@
       renderPlans();
       renderReminders();
       updateNotifyStatus();
+      updateDataStatsHint();
     } catch (err) {
       console.error("render failed", err);
       toast("حدث خطأ أثناء العرض — تمت استعادة البيانات");
@@ -727,6 +728,7 @@
 
   function updateNotifyStatus() {
     const text = $("#notifyStatusText");
+    if (!text) return;
     if (!("Notification" in window)) {
       text.textContent = "هذا المتصفح لا يدعم واجهة الإشعارات.";
       return;
@@ -737,6 +739,144 @@
       default: "غير مفعّلة بعد. اضغط الزر أدناه للسماح بالإشعارات.",
     };
     text.textContent = map[Notification.permission] || map.default;
+  }
+
+  function updateDataStatsHint() {
+    const el = $("#dataStatsHint");
+    if (!el) return;
+    el.textContent = `الحالي: ${state.tasks.length} مهمة · ${state.goals.length} هدف · ${state.plans.length} خطة · ${state.reminders.length} تذكير`;
+  }
+
+  function buildExportPayload() {
+    let theme = "light";
+    try { theme = localStorage.getItem(THEME_KEY) || getTheme(); } catch { /* ignore */ }
+    return {
+      app: "mahami",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      theme,
+      data: {
+        tasks: state.tasks,
+        goals: state.goals,
+        plans: state.plans,
+        reminders: state.reminders,
+        firedReminderIds: state.firedReminderIds,
+      },
+    };
+  }
+
+  function exportData() {
+    try {
+      saveNow();
+      const payload = buildExportPayload();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      const filename = `mahami-backup-${stamp}.json`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      toast("تم تصدير البيانات");
+    } catch (err) {
+      console.warn(err);
+      toast("تعذر تصدير البيانات");
+    }
+  }
+
+  function extractImportData(parsed) {
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.data && typeof parsed.data === "object") return parsed;
+    if (parsed.tasks || parsed.goals || parsed.plans || parsed.reminders) {
+      return { app: "mahami", version: 1, theme: null, data: parsed };
+    }
+    return null;
+  }
+
+  function applyImportedData(wrapper, { merge }) {
+    const incoming = normalizeState(wrapper.data);
+    if (merge) {
+      const byId = (list) => {
+        const map = new Map();
+        list.forEach((item) => map.set(item.id, item));
+        return map;
+      };
+      const mergeList = (current, next) => {
+        const map = byId(current);
+        next.forEach((item) => map.set(item.id, item));
+        return [...map.values()];
+      };
+      state = {
+        tasks: mergeList(state.tasks, incoming.tasks),
+        goals: mergeList(state.goals, incoming.goals),
+        plans: mergeList(state.plans, incoming.plans),
+        reminders: mergeList(state.reminders, incoming.reminders),
+        firedReminderIds: [...new Set([
+          ...safeArr(state.firedReminderIds),
+          ...safeArr(incoming.firedReminderIds),
+        ])].slice(-200),
+      };
+    } else {
+      state = incoming;
+    }
+
+    if (wrapper.theme === "dark" || wrapper.theme === "light") {
+      applyTheme(wrapper.theme);
+    }
+    saveNow();
+    render();
+  }
+
+  async function importDataFromFile(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const wrapper = extractImportData(parsed);
+      if (!wrapper) {
+        toast("ملف غير صالح");
+        return;
+      }
+      const counts = normalizeState(wrapper.data);
+      const summary = `${counts.tasks.length} مهمة، ${counts.goals.length} هدف، ${counts.plans.length} خطة، ${counts.reminders.length} تذكير`;
+      const replace = confirm(
+        `استيراد البيانات واستبدال الحالية؟\n\nمحتوى الملف: ${summary}\n\nموافق = استبدال الكل\nإلغاء = اختيار الدمج أو الإلغاء`
+      );
+      if (replace) {
+        applyImportedData(wrapper, { merge: false });
+        toast("تم استبدال البيانات بنجاح");
+        return;
+      }
+      const merge = confirm("هل تريد دمج البيانات مع الحالية بدل الاستبدال؟");
+      if (!merge) {
+        toast("تم إلغاء الاستيراد");
+        return;
+      }
+      applyImportedData(wrapper, { merge: true });
+      toast("تم دمج البيانات بنجاح");
+    } catch (err) {
+      console.warn(err);
+      toast("تعذر قراءة ملف الاستيراد");
+    }
+  }
+
+  function clearAllData() {
+    const ok = confirm("هل أنت متأكد من مسح كل البيانات؟ لا يمكن التراجع.");
+    if (!ok) return;
+    const sure = confirm("تأكيد أخير: مسح المهام والأهداف والخطط والتذكيرات؟");
+    if (!sure) return;
+    state = defaultState();
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(BACKUP_KEY);
+    } catch { /* ignore */ }
+    saveNow();
+    render();
+    toast("تم مسح البيانات");
   }
 
   async function showLocalNotification(title, body, tag) {
@@ -953,9 +1093,18 @@
       if (action === "delete-reminder") deleteReminder(id);
     });
 
-    $("#btnNotify").addEventListener("click", () => ensureNotifyPermission());
-    $("#btnEnableNotify").addEventListener("click", () => ensureNotifyPermission());
+    $("#btnNotify")?.addEventListener("click", () => ensureNotifyPermission());
+    $("#btnEnableNotify")?.addEventListener("click", () => ensureNotifyPermission());
     $("#btnTheme")?.addEventListener("click", toggleTheme);
+
+    $("#btnExportData")?.addEventListener("click", exportData);
+    $("#btnImportData")?.addEventListener("click", () => $("#importFileInput")?.click());
+    $("#importFileInput")?.addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = "";
+      await importDataFromFile(file);
+    });
+    $("#btnClearData")?.addEventListener("click", clearAllData);
 
     window.addEventListener("beforeinstallprompt", (e) => {
       e.preventDefault();
