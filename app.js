@@ -939,11 +939,20 @@
 
       if (action === "toggle-task") toggleTask(id);
       if (action === "toggle-step") toggleStep(id, idx);
-      if (action === "edit-task") openTaskModal(state.tasks.find((t) => t.id === id));
+      if (action === "edit-task") {
+        const task = state.tasks.find((t) => t.id === id);
+        if (task) openTaskModal(task);
+      }
       if (action === "delete-task") deleteTask(id);
-      if (action === "edit-goal") openGoalModal(state.goals.find((g) => g.id === id));
+      if (action === "edit-goal") {
+        const goal = state.goals.find((g) => g.id === id);
+        if (goal) openGoalModal(goal);
+      }
       if (action === "delete-goal") deleteGoal(id);
-      if (action === "edit-plan") openPlanModal(state.plans.find((p) => p.id === id));
+      if (action === "edit-plan") {
+        const plan = state.plans.find((p) => p.id === id);
+        if (plan) openPlanModal(plan);
+      }
       if (action === "delete-plan") deletePlan(id);
       if (action === "toggle-phase") togglePhase(id, idx);
       if (action === "delete-reminder") deleteReminder(id);
