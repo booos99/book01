@@ -1,4 +1,4 @@
-const CACHE = "mahami-v9";
+const CACHE = "mahami-v10";
 const SCHEDULE_DB = "mahami-notify-db";
 const SCHEDULE_STORE = "schedule";
 const ASSETS = [
