@@ -38,6 +38,24 @@
           <button type="button" class="icon-btn" id="btnInstall" title="تثبيت التطبيق" aria-label="تثبيت التطبيق" hidden>⬇️</button>
         </div>
       </div>
+      <div class="quick-actions" id="quickActions" role="toolbar" aria-label="إضافة سريعة">
+        <button type="button" class="quick-btn" data-add="task" title="مهمة جديدة">
+          <span class="quick-ico">📌</span>
+          <span class="quick-label">مهمة</span>
+        </button>
+        <button type="button" class="quick-btn" data-add="goal" title="هدف جديد">
+          <span class="quick-ico">🎯</span>
+          <span class="quick-label">هدف</span>
+        </button>
+        <button type="button" class="quick-btn" data-add="plan" title="خطة جديدة">
+          <span class="quick-ico">🗺️</span>
+          <span class="quick-label">خطة</span>
+        </button>
+        <button type="button" class="quick-btn" data-add="reminder" title="تذكير فقط">
+          <span class="quick-ico">⏰</span>
+          <span class="quick-label">تذكير</span>
+        </button>
+      </div>
       <div class="stats-bar" id="statsBar">
         <div class="stat"><span id="statDone">0</span><small>مكتمل</small></div>
         <div class="stat"><span id="statPending">0</span><small>متبقي</small></div>
@@ -79,7 +97,7 @@
         <div class="empty" id="tasksEmpty" hidden>
           <div class="empty-icon">✅</div>
           <p>لا توجد مهام بعد</p>
-          <p class="muted">اضغط + لإضافة مهمة جديدة</p>
+          <p class="muted">اضغط «مهمة» في الأعلى للإضافة</p>
         </div>
       </section>
 
@@ -117,17 +135,6 @@
         </div>
       </section>
     </main>
-
-    <button type="button" class="fab" id="fabAdd" aria-label="إضافة">+</button>
-
-    <!-- قائمة الإضافة السريعة -->
-    <div class="sheet-backdrop" id="addMenuBackdrop" hidden></div>
-    <div class="sheet add-menu" id="addMenu" hidden>
-      <button type="button" data-add="task">📌 مهمة جديدة</button>
-      <button type="button" data-add="goal">🎯 هدف جديد</button>
-      <button type="button" data-add="plan">🗺️ خطة جديدة</button>
-      <button type="button" data-add="reminder">⏰ تذكير فقط</button>
-    </div>
 
     <!-- نموذج المهمة -->
     <div class="sheet-backdrop" id="modalBackdrop" hidden></div>

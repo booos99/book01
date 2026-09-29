@@ -466,17 +466,18 @@
 
   function closeAllSheets() {
     $("#modalBackdrop").hidden = true;
-    $("#addMenuBackdrop").hidden = true;
-    $("#addMenu").hidden = true;
     $("#taskModal").hidden = true;
     $("#goalModal").hidden = true;
     $("#planModal").hidden = true;
     $("#reminderModal").hidden = true;
   }
 
-  function openAddMenu() {
-    $("#addMenuBackdrop").hidden = false;
-    $("#addMenu").hidden = false;
+  function handleAddAction(type) {
+    closeAllSheets();
+    if (type === "task") openTaskModal();
+    if (type === "goal") openGoalModal();
+    if (type === "plan") openPlanModal();
+    if (type === "reminder") openReminderModal();
   }
 
   /* Steps editor */
