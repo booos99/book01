@@ -2,12 +2,16 @@
   "use strict";
 
   const STORAGE_KEY = "mahami-v1";
+  const THEME_KEY = "mahami-theme";
+  const BACKUP_KEY = "mahami-v1-backup";
   const CHECK_INTERVAL_MS = 20000;
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
   const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
 
   const todayISO = () => {
     const d = new Date();
@@ -29,9 +33,14 @@
 
   const formatShort = (iso, time) => {
     if (!iso) return "";
-    const d = new Date(`${iso}T${time || "12:00"}:00`);
-    const datePart = d.toLocaleDateString("ar-SA", { month: "short", day: "numeric" });
-    return time ? `${datePart} · ${time}` : datePart;
+    try {
+      const d = new Date(`${iso}T${time || "12:00"}:00`);
+      if (Number.isNaN(d.getTime())) return iso;
+      const datePart = d.toLocaleDateString("ar-SA", { month: "short", day: "numeric" });
+      return time ? `${datePart} · ${time}` : datePart;
+    } catch {
+      return iso;
+    }
   };
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
@@ -44,32 +53,122 @@
     firedReminderIds: [],
   });
 
+  function normalizeState(raw) {
+    const data = raw && typeof raw === "object" ? raw : {};
+    return {
+      tasks: safeArr(data.tasks).filter((t) => t && typeof t === "object" && t.id && t.title).map((t) => ({
+        id: String(t.id),
+        title: String(t.title || "").slice(0, 120),
+        desc: String(t.desc || "").slice(0, 400),
+        date: t.date || todayISO(),
+        time: t.time || "",
+        priority: t.priority === "urgent" ? "urgent" : "normal",
+        goalId: t.goalId || "",
+        steps: safeArr(t.steps).filter((s) => s && s.text).map((s) => ({
+          text: String(s.text).slice(0, 150),
+          done: !!s.done,
+        })),
+        reminderAt: typeof t.reminderAt === "number" ? t.reminderAt : null,
+        done: !!t.done,
+        createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
+      })),
+      goals: safeArr(data.goals).filter((g) => g && g.id && g.title).map((g) => ({
+        id: String(g.id),
+        title: String(g.title || "").slice(0, 120),
+        desc: String(g.desc || "").slice(0, 400),
+        deadline: g.deadline || "",
+        createdAt: typeof g.createdAt === "number" ? g.createdAt : Date.now(),
+      })),
+      plans: safeArr(data.plans).filter((p) => p && p.id && p.title).map((p) => ({
+        id: String(p.id),
+        title: String(p.title || "").slice(0, 120),
+        desc: String(p.desc || "").slice(0, 400),
+        start: p.start || "",
+        end: p.end || "",
+        phases: safeArr(p.phases).filter((ph) => ph && ph.text).map((ph) => ({
+          text: String(ph.text).slice(0, 150),
+          done: !!ph.done,
+        })),
+        createdAt: typeof p.createdAt === "number" ? p.createdAt : Date.now(),
+      })),
+      reminders: safeArr(data.reminders).filter((r) => r && r.id && r.title && typeof r.at === "number").map((r) => ({
+        id: String(r.id),
+        title: String(r.title || "").slice(0, 120),
+        at: r.at,
+        createdAt: typeof r.createdAt === "number" ? r.createdAt : Date.now(),
+      })),
+      firedReminderIds: safeArr(data.firedReminderIds).map(String).slice(-200),
+    };
+  }
+
   let state = load();
   let currentFilter = "all";
   let deferredInstallPrompt = null;
   let toastTimer = null;
+  let saveTimer = null;
+  let rendering = false;
 
   function load() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(BACKUP_KEY);
       if (!raw) return defaultState();
-      const parsed = JSON.parse(raw);
-      return { ...defaultState(), ...parsed };
+      return normalizeState(JSON.parse(raw));
     } catch {
+      try {
+        const bak = localStorage.getItem(BACKUP_KEY);
+        if (bak) return normalizeState(JSON.parse(bak));
+      } catch { /* ignore */ }
       return defaultState();
     }
   }
 
+  function saveNow() {
+    try {
+      const payload = JSON.stringify(state);
+      localStorage.setItem(STORAGE_KEY, payload);
+      localStorage.setItem(BACKUP_KEY, payload);
+    } catch (err) {
+      console.warn("save failed", err);
+      toast("تعذر حفظ البيانات — مساحة التخزين ممتلئة ربما");
+    }
+  }
+
   function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 80);
   }
 
   function toast(msg) {
     const el = $("#toast");
+    if (!el) return;
     el.textContent = msg;
     el.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  }
+
+  /* ---------- Theme ---------- */
+  function getTheme() {
+    return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  }
+
+  function applyTheme(theme) {
+    const next = theme === "dark" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
+    const btn = $("#btnTheme");
+    if (btn) {
+      btn.textContent = next === "dark" ? "☀️" : "🌙";
+      btn.title = next === "dark" ? "النمط الفاتح" : "النمط الداكن";
+      btn.setAttribute("aria-label", btn.title);
+    }
+    const meta = $("#metaThemeColor") || document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", next === "dark" ? "#0b1220" : "#3b82f6");
+  }
+
+  function toggleTheme() {
+    applyTheme(getTheme() === "dark" ? "light" : "dark");
+    toast(getTheme() === "dark" ? "تم تفعيل النمط الداكن" : "تم تفعيل النمط الفاتح");
   }
 
   function taskProgress(task) {
@@ -141,12 +240,26 @@
 
   /* ---------- Render ---------- */
   function render() {
-    updateStats();
-    renderTasks();
-    renderGoals();
-    renderPlans();
-    renderReminders();
-    updateNotifyStatus();
+    if (rendering) return;
+    rendering = true;
+    try {
+      updateStats();
+      renderTasks();
+      renderGoals();
+      renderPlans();
+      renderReminders();
+      updateNotifyStatus();
+    } catch (err) {
+      console.error("render failed", err);
+      toast("حدث خطأ أثناء العرض — تمت استعادة البيانات");
+      try {
+        state = load();
+        updateStats();
+        renderTasks();
+      } catch { /* ignore */ }
+    } finally {
+      rendering = false;
+    }
   }
 
   function getSortedFilteredTasks() {
@@ -838,27 +951,40 @@
 
     $("#btnNotify").addEventListener("click", () => ensureNotifyPermission());
     $("#btnEnableNotify").addEventListener("click", () => ensureNotifyPermission());
+    $("#btnTheme")?.addEventListener("click", toggleTheme);
 
     window.addEventListener("beforeinstallprompt", (e) => {
       e.preventDefault();
       deferredInstallPrompt = e;
-      $("#btnInstall").hidden = false;
+      const installBtn = $("#btnInstall");
+      if (installBtn) installBtn.hidden = false;
     });
 
-    $("#btnInstall").addEventListener("click", async () => {
+    $("#btnInstall")?.addEventListener("click", async () => {
       if (!deferredInstallPrompt) {
         toast("للتثبيت: من قائمة المتصفح اختر «إضافة إلى الشاشة الرئيسية»");
         return;
       }
-      deferredInstallPrompt.prompt();
-      await deferredInstallPrompt.userChoice;
+      try {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+      } catch { /* ignore */ }
       deferredInstallPrompt = null;
-      $("#btnInstall").hidden = true;
+      const installBtn = $("#btnInstall");
+      if (installBtn) installBtn.hidden = true;
     });
 
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) checkDueReminders();
+      if (!document.hidden) {
+        checkDueReminders();
+        render();
+      } else {
+        saveNow();
+      }
     });
+
+    window.addEventListener("pagehide", saveNow);
+    window.addEventListener("online", () => toast("عاد الاتصال"));
   }
 
   async function registerSW() {
@@ -914,6 +1040,11 @@
   }
 
   function init() {
+    try {
+      applyTheme(localStorage.getItem(THEME_KEY) || getTheme());
+    } catch {
+      applyTheme(getTheme());
+    }
     seedIfEmpty();
     bindEvents();
     render();
@@ -922,11 +1053,16 @@
     setInterval(checkDueReminders, CHECK_INTERVAL_MS);
 
     // keep awake check when page visible
-    if ("permissions" in navigator && navigator.permissions.query) {
+    if ("permissions" in navigator && navigator.permissions?.query) {
       navigator.permissions.query({ name: "notifications" }).then((p) => {
         p.onchange = updateNotifyStatus;
       }).catch(() => {});
     }
+
+    window.addEventListener("error", () => {
+      // منع تعطل الواجهة بالكامل
+      try { saveNow(); } catch { /* ignore */ }
+    });
   }
 
   init();

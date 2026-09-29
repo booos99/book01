@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f766e" />
+  <meta name="theme-color" content="#3b82f6" id="metaThemeColor" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="مهامي" />
@@ -13,6 +13,16 @@
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <title>مهامي — إدارة المهام والأهداف</title>
   <link rel="stylesheet" href="styles.css" />
+  <script>
+    // تطبيق الثيم مبكراً لتقليل وميض الألوان
+    (function () {
+      try {
+        var t = localStorage.getItem("mahami-theme");
+        if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <div id="app">
@@ -23,6 +33,7 @@
           <p class="subtitle" id="todayLabel"></p>
         </div>
         <div class="header-actions">
+          <button type="button" class="icon-btn" id="btnTheme" title="تبديل النمط" aria-label="تبديل النمط الداكن/الفاتح">🌙</button>
           <button type="button" class="icon-btn" id="btnNotify" title="تفعيل الإشعارات" aria-label="تفعيل الإشعارات">🔔</button>
           <button type="button" class="icon-btn" id="btnInstall" title="تثبيت التطبيق" aria-label="تثبيت التطبيق" hidden>⬇️</button>
         </div>
