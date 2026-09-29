@@ -1050,7 +1050,7 @@
     if (result === "granted") {
       toast("تم تفعيل الإشعارات");
       await syncScheduleToServiceWorker();
-      await showLocalNotification("مهامي جاهز ✅", "الإشعارات تعمل. فعّل الظهور على شاشة القفل من إعدادات الهاتف.");
+      await showLocalNotification("مهامي", "تم تفعيل الإشعارات بنجاح");
       return true;
     }
     toast("لم يتم منح إذن الإشعارات");
