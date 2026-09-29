@@ -1283,6 +1283,7 @@
       e.preventDefault();
       const title = $("#remTitle").value.trim();
       if (!title) return;
+      const id = $("#remId").value || null;
       const type = ($("input[name='remType']:checked") || {}).value || "once";
       await ensureNotifyPermission();
 
@@ -1298,7 +1299,8 @@
           toast("تاريخ النهاية يجب أن يكون بعد تاريخ البداية");
           return;
         }
-        addStandaloneReminder({
+        upsertStandaloneReminder({
+          id,
           title,
           type: "daily",
           startDate,
@@ -1307,7 +1309,7 @@
           at: null,
         });
         closeAllSheets();
-        toast("تم حفظ التذكير اليومي");
+        toast(id ? "تم تحديث التذكير اليومي" : "تم حفظ التذكير اليومي");
         setTab("reminders");
         return;
       }
@@ -1319,9 +1321,9 @@
         toast("أكمل تاريخ ووقت التذكير");
         return;
       }
-      addStandaloneReminder({ title, type: "once", at });
+      upsertStandaloneReminder({ id, title, type: "once", at });
       closeAllSheets();
-      toast("تم حفظ التذكير");
+      toast(id ? "تم تحديث التذكير" : "تم حفظ التذكير");
       setTab("reminders");
     });
 
@@ -1349,6 +1351,10 @@
       }
       if (action === "delete-plan") deletePlan(id);
       if (action === "toggle-phase") togglePhase(id, idx);
+      if (action === "edit-reminder") {
+        const rem = state.reminders.find((r) => r.id === id);
+        if (rem) openReminderModal(rem);
+      }
       if (action === "delete-reminder") deleteReminder(id);
     });
 
