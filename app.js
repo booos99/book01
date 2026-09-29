@@ -801,19 +801,13 @@
 
     $("#sortTasks").addEventListener("change", renderTasks);
 
-    $("#fabAdd").addEventListener("click", openAddMenu);
-    $("#addMenuBackdrop").addEventListener("click", closeAllSheets);
+    $("#fabAdd")?.remove?.();
     $("#modalBackdrop").addEventListener("click", closeAllSheets);
 
-    $("#addMenu").addEventListener("click", (e) => {
+    $("#quickActions")?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-add]");
       if (!btn) return;
-      closeAllSheets();
-      const type = btn.dataset.add;
-      if (type === "task") openTaskModal();
-      if (type === "goal") openGoalModal();
-      if (type === "plan") openPlanModal();
-      if (type === "reminder") openReminderModal();
+      handleAddAction(btn.dataset.add);
     });
 
     $("#btnCancelTask").addEventListener("click", closeAllSheets);
