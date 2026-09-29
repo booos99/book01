@@ -771,6 +771,28 @@ form textarea {
   width: auto;
 }
 
+.data-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-actions .btn {
+  width: 100%;
+}
+
+.data-hint {
+  margin: 12px 0 0 !important;
+  font-size: 0.82rem !important;
+}
+
+.btn-danger-soft {
+  background: var(--urgent-bg);
+  color: var(--urgent);
+  border: 1px solid rgba(244, 63, 94, 0.28);
+  width: 100%;
+}
+
 .toast {
   position: fixed;
   left: 50%;

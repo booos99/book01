@@ -1,4 +1,4 @@
-const CACHE = "mahami-v3";
+const CACHE = "mahami-v4";
 const ASSETS = [
   "./",
   "./index.html",

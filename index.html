@@ -72,6 +72,7 @@
       <button type="button" class="tab" data-tab="goals" role="tab" aria-selected="false">الأهداف</button>
       <button type="button" class="tab" data-tab="plans" role="tab" aria-selected="false">الخطط</button>
       <button type="button" class="tab" data-tab="reminders" role="tab" aria-selected="false">التذكيرات</button>
+      <button type="button" class="tab" data-tab="more" role="tab" aria-selected="false">المزيد</button>
     </nav>
 
     <main class="content">
@@ -132,6 +133,25 @@
         <div class="empty" id="remindersEmpty" hidden>
           <div class="empty-icon">⏰</div>
           <p>لا توجد تذكيرات قادمة</p>
+        </div>
+      </section>
+
+      <!-- المزيد / البيانات -->
+      <section id="panel-more" class="panel" role="tabpanel" hidden>
+        <div class="info-card">
+          <strong>تصدير واستيراد البيانات</strong>
+          <p>احفظ نسخة احتياطية من المهام والأهداف والخطط والتذكيرات، أو استرجعها على هذا الجهاز أو جهاز آخر.</p>
+          <div class="data-actions">
+            <button type="button" class="btn btn-primary" id="btnExportData">⬇️ تصدير البيانات</button>
+            <button type="button" class="btn btn-ghost" id="btnImportData">⬆️ استيراد البيانات</button>
+            <input type="file" id="importFileInput" accept="application/json,.json" hidden />
+          </div>
+          <p class="muted data-hint" id="dataStatsHint"></p>
+        </div>
+        <div class="info-card">
+          <strong>خيارات متقدمة</strong>
+          <p>حذف كل البيانات المحلية من هذا المتصفح فقط. لا يمكن التراجع بعد التأكيد.</p>
+          <button type="button" class="btn btn-danger-soft" id="btnClearData">🗑️ مسح كل البيانات</button>
         </div>
       </section>
     </main>
